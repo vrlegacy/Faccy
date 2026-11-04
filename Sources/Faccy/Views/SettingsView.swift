@@ -118,7 +118,7 @@ struct SettingsView: View {
             } header: {
                 Text("Enforcement")
             } footer: {
-                Text("When on, Faccy watches for protected apps opened from the Dock, Spotlight, Finder, or anywhere else. It quits them and asks you to authenticate before reopening. Apps that are already open, or that open on their own at login, are hidden instead and ask for a check when you switch to them. This is a watchdog, not a kernel-level block: an app may appear briefly before it is closed, and Faccy must be running.")
+                Text("When on, Faccy watches for protected apps opened from the Dock, Spotlight, Finder, or anywhere else. It quits them and asks you to authenticate before reopening. Apps that are already open, or that open on their own at login, are hidden instead and ask for a check when you switch to them. A protected app left running with no windows (for example after you close its last window) is quit, so opening it again is checked before anything shows. This is a watchdog, not a kernel-level block: an app may appear briefly before it is closed, and Faccy must be running.")
             }
 
             Section {

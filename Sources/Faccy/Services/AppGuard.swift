@@ -161,10 +161,26 @@ final class AppGuard {
     /// or the user has been idle.
     func lockRunningApps() {
         pendingAuthorizations.removeAll()
+        let snapshot = Self.windowSnapshot()
         for (pid, bundleID) in authorizedPIDs where protectedBundleIDs.contains(bundleID) {
+            guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { continue }
             closedPIDs.insert(pid)
-            NSRunningApplication(processIdentifier: pid)?.hide()
+            if !quitIfWindowless(app, snapshot: snapshot) {
+                app.hide()
+            }
         }
+    }
+
+    /// Politely quits a locked app that has no windows at all, so the next
+    /// time it is opened it is a fresh launch — which Faccy stops before the
+    /// app can draw anything. Reopening a running app instead lets macOS show
+    /// its window before Faccy can react. Apps that still have windows
+    /// (minimized, hidden, or on another Space) are left running.
+    @discardableResult
+    private func quitIfWindowless(_ app: NSRunningApplication, snapshot: WindowSnapshot) -> Bool {
+        guard (snapshot.allIDs[app.processIdentifier] ?? []).isEmpty else { return false }
+        app.terminate()
+        return true
     }
 
     /// Stops treating an app's current process as protected.
@@ -207,7 +223,7 @@ final class AppGuard {
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
                 return
             }
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.evaluate(app)
             }
         }
@@ -220,7 +236,8 @@ final class AppGuard {
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
                 return
             }
-            Task { @MainActor in
+            // Hide immediately, in the same run-loop turn as the activation.
+            MainActor.assumeIsolated {
                 self?.handleActivation(app)
             }
         }
@@ -229,8 +246,14 @@ final class AppGuard {
             \.runningApplications,
             options: [.new]
         ) { [weak self] _, _ in
-            Task { @MainActor in
-                self?.evaluateAllRunning()
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self?.evaluateAllRunning()
+                }
+            } else {
+                Task { @MainActor in
+                    self?.evaluateAllRunning()
+                }
             }
         }
 
@@ -337,7 +360,9 @@ final class AppGuard {
         authorizedPIDs[pid] = bundleID
         authorizedAt[pid] = Date()
         closedPIDs.insert(pid)
-        app.hide()
+        if !quitIfWindowless(app, snapshot: Self.windowSnapshot()) {
+            app.hide()
+        }
     }
 
     private func handleActivation(_ app: NSRunningApplication) {
@@ -390,6 +415,9 @@ final class AppGuard {
             if now.timeIntervalSince(since) >= Self.closedDebounce {
                 closedPIDs.insert(pid)
                 noWindowSince.removeValue(forKey: pid)
+                // Its window is gone: quit it so reopening is a fresh launch
+                // that is verified before anything shows.
+                quitIfWindowless(app, snapshot: snapshot)
             }
         }
     }
