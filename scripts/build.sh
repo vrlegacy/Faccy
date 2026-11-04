@@ -37,6 +37,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN" "$APP/Contents/MacOS/Faccy"
 cp "$ROOT/Support/Info.plist" "$APP/Contents/Info.plist"
+cp "$ROOT/Support/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 plutil -lint "$APP/Contents/Info.plist" >/dev/null

@@ -1,3 +1,5 @@
+<p align="center"><img src="Support/logo.png" width="160" alt="Faccy icon"></p>
+
 # Faccy
 
 [![Build](https://github.com/vrlegacy/Faccy/actions/workflows/build.yml/badge.svg)](https://github.com/vrlegacy/Faccy/actions/workflows/build.yml)
@@ -124,6 +126,7 @@ Sources/Faccy/
   Views/                      SwiftUI screens and components
     NotchAuthView.swift       Compact/expanding pill, preview, password entry
 Support/Info.plist            Bundle metadata + camera usage description
+Support/AppIcon.icns          App icon (source: Support/icon.svg)
 scripts/build.sh              Builds dist/Faccy.app
 scripts/make-dmg.sh           Packages the app into dist/Faccy-<version>.dmg
 build.command                 Double-click: build, DMG, install, open

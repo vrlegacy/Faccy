@@ -6,6 +6,8 @@
     <string>en</string>
     <key>CFBundleDisplayName</key>
     <string>Faccy</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleExecutable</key>
     <string>Faccy</string>
     <key>CFBundleIdentifier</key>

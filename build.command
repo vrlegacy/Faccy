@@ -38,6 +38,9 @@ echo "▶︎ 4/5  Installing to /Applications…"
 rm -rf /Applications/Faccy.app
 ditto dist/Faccy.app /Applications/Faccy.app
 
+# Clear the camera permission left behind by the old com.faccy.app build.
+tccutil reset Camera com.faccy.app >/dev/null 2>&1 || true
+
 # Keep exactly one copy: drop the build copy so Spotlight and Launch Services
 # don't show two Faccy apps.
 "$LSREGISTER" -u "$ROOT/dist/Faccy.app" >/dev/null 2>&1 || true
