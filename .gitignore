@@ -1,0 +1,24 @@
+# Swift Package Manager / build output
+.build/
+.swiftpm/
+dist/
+*.dSYM/
+DerivedData/
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+.vscode/
+.idea/
+
+# Local Faccy data should never be committed
+face-profile.json
+password.json
