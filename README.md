@@ -40,6 +40,29 @@ Faccy tries face verification first, and offers these alternatives in the same p
 
 A successful fallback unlock uses the same session rules as a face match, so "Remember each app's unlock for" applies to all three. The one exception is reopening a protected app whose window was closed: that always requires a fresh check.
 
+## Download
+
+Grab the latest `Faccy-x.y.z.dmg` from [Releases](https://github.com/vrlegacy/Faccy/releases), open it and drag Faccy to Applications.
+
+Faccy is ad-hoc signed, not notarized, so the first time macOS will say it can't verify the developer. Right-click Faccy in Applications and choose **Open**, or run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Faccy.app
+```
+
+## One-click build
+
+Double-click **`build.command`** in Finder. It builds Faccy, makes `dist/Faccy-<version>.dmg`, quits any running copy, installs the app to `/Applications` (keeping only that one copy), and opens it.
+
+## Publishing a release
+
+Bump `CFBundleShortVersionString` if you like, then push a tag. GitHub Actions builds the app and attaches the DMG to a new release:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
 ## Build and run
 
 Requirements: macOS 14 or newer, Swift 6 toolchain (Command Line Tools is enough).
@@ -102,6 +125,9 @@ Sources/Faccy/
     NotchAuthView.swift       Compact/expanding pill, preview, password entry
 Support/Info.plist            Bundle metadata + camera usage description
 scripts/build.sh              Builds dist/Faccy.app
+scripts/make-dmg.sh           Packages the app into dist/Faccy-<version>.dmg
+build.command                 Double-click: build, DMG, install, open
+.github/workflows/            CI build + tag-triggered release with DMG
 ```
 
 ## Security model and limitations
