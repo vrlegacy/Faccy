@@ -98,7 +98,7 @@ struct SettingsView: View {
             } header: {
                 Text("Recognition")
             } footer: {
-                Text("To unlock, your face has to match and then blink once, so a still photo can't get in.")
+                Text("Touch ID runs at the same time as the face scan — whichever recognizes you first unlocks.")
             }
 
             Section {

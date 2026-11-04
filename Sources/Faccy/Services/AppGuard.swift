@@ -48,6 +48,12 @@ final class AppGuard {
     private var blockedPIDs: Set<pid_t> = []
     /// Approved processes that lost all visible windows. Sticky until reopened.
     private var closedPIDs: Set<pid_t> = []
+    /// Approved processes that have shown at least one window. An app is only
+    /// considered "closed" after it had a window and lost it, so an app that
+    /// is still starting up is never mistaken for a closed one.
+    private var hadWindowPIDs: Set<pid_t> = []
+    /// When an active approved app was first seen with no window on screen.
+    private var noWindowSince: [pid_t: Date] = [:]
 
     private var launchObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
@@ -71,6 +77,12 @@ final class AppGuard {
     /// Time after approval before "no windows" counts as closed. Long enough
     /// that an app still creating its window is not mistaken for a closed one.
     private static let windowGrace: TimeInterval = 5.0
+    /// The app must stay windowless this long before it counts as closed, so
+    /// switching windows, tabs or full-screen Spaces doesn't trigger a prompt.
+    private static let closedDebounce: TimeInterval = 2.0
+    /// A Faccy-approved launch covers every process of that app started in
+    /// this window (some apps start a second process that hands off and exits).
+    private static let approvalLifetime: TimeInterval = 10
 
     // MARK: - Configuration
 
@@ -83,6 +95,28 @@ final class AppGuard {
         pendingAuthorizations[bundleID] = Date()
     }
 
+    /// Unlocks copies of `bundleID` that Faccy already approved but locked
+    /// (hidden at startup, on screen lock, or after idle).
+    func unlockApprovedInstances(of bundleID: String) {
+        for (pid, approvedID) in authorizedPIDs where approvedID == bundleID {
+            closedPIDs.remove(pid)
+            noWindowSince.removeValue(forKey: pid)
+            authorizedAt[pid] = Date()
+            NSRunningApplication(processIdentifier: pid)?.unhide()
+        }
+    }
+
+    /// True when an approved copy is running and not locked, i.e. the user
+    /// already unlocked it and it can simply be brought forward.
+    func isUnlockedRunning(bundleID: String) -> Bool {
+        authorizedPIDs.contains { pid, approvedID in
+            guard approvedID == bundleID, !closedPIDs.contains(pid),
+                  let app = NSRunningApplication(processIdentifier: pid)
+            else { return false }
+            return !app.isTerminated
+        }
+    }
+
     /// Approves any instance of `bundleID` that is currently running.
     func authorizeRunningInstances(of bundleID: String) {
         for app in NSWorkspace.shared.runningApplications
@@ -91,6 +125,7 @@ final class AppGuard {
             authorizedPIDs[pid] = bundleID
             authorizedAt[pid] = Date()
             closedPIDs.remove(pid)
+            noWindowSince.removeValue(forKey: pid)
         }
     }
 
@@ -105,6 +140,7 @@ final class AppGuard {
             authorizedPIDs[pid] = bundleID
             authorizedAt[pid] = Date()
             closedPIDs.remove(pid)
+            noWindowSince.removeValue(forKey: pid)
             app.unhide()
         }
 
@@ -137,6 +173,8 @@ final class AppGuard {
         authorizedAt.removeAll()
         pendingAuthorizations.removeAll()
         closedPIDs.removeAll()
+        hadWindowPIDs.removeAll()
+        noWindowSince.removeAll()
     }
 
     // MARK: - Lifecycle
@@ -255,15 +293,14 @@ final class AppGuard {
         if authorizedPIDs[pid] == bundleID { return }
         if app.isTerminated { return }
 
-        // This launch came from Faccy itself — let it through. Approvals are
-        // short-lived so a stale one cannot authorize a later manual launch.
-        if let approvedAt = pendingAuthorizations[bundleID] {
-            pendingAuthorizations.removeValue(forKey: bundleID)
-            if Date().timeIntervalSince(approvedAt) < 10 {
-                authorizedPIDs[pid] = bundleID
-                authorizedAt[pid] = Date()
-                return
-            }
+        // This launch came from Faccy itself — let it through. The approval
+        // covers every process of the app for a few seconds (not just the
+        // first), but expires so it cannot authorize a later manual launch.
+        if let approvedAt = pendingAuthorizations[bundleID],
+           Date().timeIntervalSince(approvedAt) < Self.approvalLifetime {
+            authorizedPIDs[pid] = bundleID
+            authorizedAt[pid] = Date()
+            return
         }
 
         // Right after Faccy starts, apps opening on their own (login items,
@@ -325,18 +362,34 @@ final class AppGuard {
         let now = Date()
 
         for (pid, bundleID) in authorizedPIDs where protectedBundleIDs.contains(bundleID) {
-            guard let grantedAt = authorizedAt[pid],
-                  now.timeIntervalSince(grantedAt) > Self.windowGrace,
+            guard !closedPIDs.contains(pid),
                   let app = NSRunningApplication(processIdentifier: pid),
                   !app.isTerminated
             else { continue }
 
-            // Only judge "closed" while the app is frontmost. When it is not
-            // active its window may simply be on another Space or minimized,
-            // which is not the same as the user closing it.
-            guard app.isActive else { continue }
+            if !(snapshot.onscreenIDs[pid] ?? []).isEmpty {
+                hadWindowPIDs.insert(pid)
+                noWindowSince.removeValue(forKey: pid)
+                continue
+            }
 
-            if (snapshot.onscreenIDs[pid] ?? []).isEmpty, closedPIDs.insert(pid).inserted {
+            // Only judge "closed" while the app is frontmost (a window on
+            // another Space or a hidden app is not closed), only after it has
+            // shown a window, and not during the first seconds after approval.
+            guard app.isActive,
+                  hadWindowPIDs.contains(pid),
+                  let grantedAt = authorizedAt[pid],
+                  now.timeIntervalSince(grantedAt) > Self.windowGrace
+            else {
+                noWindowSince.removeValue(forKey: pid)
+                continue
+            }
+
+            let since = noWindowSince[pid] ?? now
+            noWindowSince[pid] = since
+            if now.timeIntervalSince(since) >= Self.closedDebounce {
+                closedPIDs.insert(pid)
+                noWindowSince.removeValue(forKey: pid)
             }
         }
     }
@@ -382,9 +435,11 @@ final class AppGuard {
         let alive = Set(authorizedPIDs.keys)
         authorizedAt = authorizedAt.filter { alive.contains($0.key) }
         closedPIDs = closedPIDs.filter { alive.contains($0) }
+        hadWindowPIDs = hadWindowPIDs.filter { alive.contains($0) }
+        noWindowSince = noWindowSince.filter { alive.contains($0.key) }
 
         pendingAuthorizations = pendingAuthorizations.filter { _, grantedAt in
-            Date().timeIntervalSince(grantedAt) < 10
+            Date().timeIntervalSince(grantedAt) < Self.approvalLifetime
         }
     }
 

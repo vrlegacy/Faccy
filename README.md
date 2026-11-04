@@ -15,7 +15,7 @@ Faccy is a local-first prototype for Apple silicon Macs (including M5): the came
 ## What works
 
 - **Up to 5 faces** — enroll, name, re-enroll or delete up to five faces (you, family, a colleague). Any enrolled face unlocks.
-- **Face verification with a blink** — your face must match your enrolled profile and then blink once, so a still photo can't unlock anything. Only the Mac's built-in camera is used; external, iPhone (Continuity) and virtual cameras are ignored.
+- **Face or Touch ID, whichever is first** — the face scan and Touch ID start together; the first one to recognize you unlocks and the other is withdrawn. Only the Mac's built-in camera is used; external, iPhone (Continuity) and virtual cameras are ignored.
 - **Faccy locks itself** — the main window (protected apps, face setup, settings) needs a check before you can use it, and locks again when you close it.
 - **System-wide interception** — a watchdog kills protected apps launched from the Dock, Spotlight, Finder, or anywhere else the moment they appear, then asks you to authenticate before reopening them.
 - **Automatic locking** — every protected app and Faccy's own window lock again when the screen locks, the Mac or its display sleeps, you switch users, or you're idle (5 minutes by default).
@@ -36,8 +36,8 @@ Faccy tries face verification first, and offers these alternatives in the same p
 
 | Method | Notes |
 | --- | --- |
-| Face Auth | Built-in camera + Vision feature prints compared to every enrolled face (up to 5), followed by one blink. |
-| Touch ID | Uses `LocalAuthentication` with `deviceOwnerAuthenticationWithBiometrics`. Only shown when a fingerprint is enrolled. |
+| Face Auth | Built-in camera + Vision feature prints compared to every enrolled face (up to 5). |
+| Touch ID | Uses `LocalAuthentication` with `deviceOwnerAuthenticationWithBiometrics`. Starts automatically alongside the face scan when a fingerprint is enrolled. |
 | Custom passwords | Up to 5, each a salted, 60,000-round iterated SHA-256 hash stored in `passwords.json`. Minimum 4 characters. |
 
 A successful fallback unlock uses the same session rules as a face match, so "Remember each app's unlock for" applies to all three. The one exception is reopening a protected app whose window was closed: that always requires a fresh check.
@@ -141,7 +141,7 @@ This prototype is intentionally honest about its boundaries:
 - **Apps already running when Faccy starts are locked, not closed.** When Faccy starts (usually at login), protected apps that are already open, or that open on their own in the next 30 seconds, are hidden and ask for a check when you switch to them. Nothing is quit or reopened. Turn off **Lock protected apps already running when Faccy starts** in Settings to leave them unlocked.
 - **Protected apps are quit, not paused.** Faccy asks the app to quit, then force-quits after one second. Unsaved work in a protected app can be lost. This is a real tradeoff of watchdog-style enforcement.
 - **Reopen detection is a heuristic.** Faccy decides a window was closed when the app is frontmost and reports no on-screen window for five seconds. An app that keeps an invisible layer-0 window, or that takes longer than five seconds to create its first window, may not be gated as expected. This is a watchdog, not a window-level lock.
-- **Liveness is a single blink.** A printed photo cannot blink, and virtual cameras are refused, but a video of the enrolled person blinking, held up to the built-in camera, can still pass. Macs without a built-in camera (Mac mini, Mac Studio, Mac Pro) can only use Touch ID or the password.
+- **No liveness check.** Virtual cameras are refused, but a photo or video of an enrolled person held up to the built-in camera can pass. Macs without a built-in camera (Mac mini, Mac Studio, Mac Pro) can only use Touch ID or the password.
 - **Fallback passwords are local only.** It is stored as a salted, iterated hash (not plain text), but anyone who can read or replace the file in Application Support can tamper with Faccy's data. It protects against someone using your Mac, not against an attacker with your user account.
 - **Touch ID is a fallback, not a second factor.** Any one method unlocks the app; they are alternatives, not a chain.
 - **Vision feature prints are not a dedicated face-recognition model.** They are a practical baseline for a prototype. A production app should use a Core ML face-embedding model trained for recognition, with a calibrated threshold and liveness checks.
@@ -153,7 +153,7 @@ This prototype is intentionally honest about its boundaries:
 ## Roadmap ideas
 
 - Replace the feature-print baseline with a Core ML face-embedding model.
-- Add a head-turn challenge on top of the blink check.
+- Add an optional blink / head-turn liveness check.
 - Encrypt the face profile with a Keychain key.
 - Add Apple Watch unlock as another fallback.
 - Add per-app timeout rules and audit history.

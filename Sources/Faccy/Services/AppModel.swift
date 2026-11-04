@@ -129,20 +129,13 @@ final class AppModel: ObservableObject {
     private var pendingGate: PendingGate?
     private var cancellables = Set<AnyCancellable>()
 
-    // Liveness and automatic locking
-    private var blinkPhase: BlinkPhase = .waitingForMatch
-    private var eyeOpenBaseline: Double?
+    // Touch ID runs alongside the face scan; whichever succeeds first wins.
+    private var biometricContext: LAContext?
+
+    // Automatic locking
     private var idleTimer: Timer?
     private var isIdleLocked = false
     private var lockObservers: [NSObjectProtocol] = []
-
-    /// A matched face has to blink once before it unlocks anything, so a
-    /// still photo cannot get in.
-    private enum BlinkPhase {
-        case waitingForMatch
-        case eyesOpen
-        case eyesClosed
-    }
 
     /// A protected app that needs attention once the current prompt closes.
     private struct PendingGate {
@@ -326,7 +319,8 @@ final class AppModel: ObservableObject {
             return
         }
 
-        if isSessionValid(for: app.bundleID) {
+        // Already open and unlocked: just bring it forward, no new check.
+        if isSessionValid(for: app.bundleID) || launchGuard.isUnlockedRunning(bundleID: app.bundleID) {
             relaunch(app)
             return
         }
@@ -463,6 +457,7 @@ final class AppModel: ObservableObject {
         authDismissTask = nil
         revealTask?.cancel()
         revealTask = nil
+        cancelBiometrics()
         authWindow.dismiss()
         authRequest = nil
         authState = .idle
@@ -486,8 +481,6 @@ final class AppModel: ObservableObject {
         revealTask?.cancel()
         revealTask = nil
         successFrames = 0
-        blinkPhase = .waitingForMatch
-        eyeOpenBaseline = nil
         lastFaceQuality = nil
         secondaryError = nil
         isSecondaryInProgress = false
@@ -509,8 +502,17 @@ final class AppModel: ObservableObject {
             cameraHint = "Center your face to verify."
         }
 
+        // Offer Touch ID at the same time as the face scan for real unlocks
+        // (not for a bare "Test Face"). Whichever succeeds first is used.
+        let isRealUnlock = request.app != nil || request.origin == .faccyWindow
+        if isRealUnlock, touchIDAvailable {
+            authenticateWithTouchID()
+        }
+
         guard isEnrolled else {
-            cameraHint = "Use Touch ID or your password to continue."
+            cameraHint = touchIDAvailable
+                ? "Touch the sensor, or use your password."
+                : "Use your password to continue."
             return
         }
 
@@ -559,6 +561,7 @@ final class AppModel: ObservableObject {
 
     /// Shared success path for face, Touch ID, and password authentication.
     private func finishAuthSuccess(message: String) {
+        cancelBiometrics()
         authTimeoutTask?.cancel()
         authTimeoutTask = nil
         revealTask?.cancel()
@@ -581,6 +584,10 @@ final class AppModel: ObservableObject {
                 // The process never quit — just unhide and bring it forward.
                 launchGuard.reopen(bundleID: app.bundleID)
             } else {
+                // If an approved copy is already running but locked (hidden
+                // at startup, screen lock, idle), this check unlocks it too,
+                // so bringing it forward doesn't ask a second time.
+                launchGuard.unlockApprovedInstances(of: app.bundleID)
                 relaunch(app)
             }
         }
@@ -601,30 +608,57 @@ final class AppModel: ObservableObject {
 
     // MARK: - Secondary authentication
 
+    /// Starts a Touch ID check. It runs alongside the face scan; if the face
+    /// matches first the Touch ID prompt is withdrawn, and vice versa.
     func authenticateWithTouchID() {
-        guard authRequest != nil, touchIDAvailable, !isSecondaryInProgress else { return }
+        guard let request = authRequest,
+              touchIDAvailable,
+              biometricContext == nil,
+              authState != .success
+        else { return }
 
-        isSecondaryInProgress = true
+        let context = LAContext()
+        context.localizedCancelTitle = isEnrolled ? "Use Face" : "Cancel"
+        context.localizedFallbackTitle = ""
+        biometricContext = context
         secondaryError = nil
 
         let reason: String
-        if let app = authRequest?.app {
-            reason = "Unlock \(app.name)"
+        if let app = request.app {
+            reason = "unlock \(app.name)"
         } else {
-            reason = "Verify your identity for Faccy"
+            reason = "unlock Faccy"
         }
+        let requestID = request.id
 
         Task { @MainActor [weak self] in
             do {
-                try await SecondaryAuth.evaluateBiometrics(reason: reason)
-                guard let self else { return }
+                _ = try await context.evaluatePolicy(
+                    .deviceOwnerAuthenticationWithBiometrics,
+                    localizedReason: reason
+                )
+                guard let self, self.biometricContext === context else { return }
+                self.biometricContext = nil
+                guard self.authRequest?.id == requestID, self.authState != .success else { return }
                 self.finishAuthSuccess(message: "Verified with \(SecondaryAuth.biometryDescription).")
             } catch {
-                guard let self else { return }
-                self.isSecondaryInProgress = false
+                guard let self, self.biometricContext === context else { return }
+                self.biometricContext = nil
+                // Dismissing the Touch ID prompt just leaves the face scan running.
+                if let laError = error as? LAError,
+                   [.userCancel, .appCancel, .systemCancel].contains(laError.code) {
+                    return
+                }
                 self.secondaryError = Self.describeBiometricError(error)
             }
         }
+    }
+
+    /// Withdraws a pending Touch ID prompt.
+    private func cancelBiometrics() {
+        guard let context = biometricContext else { return }
+        biometricContext = nil
+        context.invalidate()
     }
 
     func verifyPassword(_ password: String) {
@@ -872,6 +906,7 @@ final class AppModel: ObservableObject {
 
         authTimeoutTask?.cancel()
         authDismissTask?.cancel()
+        cancelBiometrics()
         authWindow.dismiss()
         authRequest = nil
         authState = .idle
@@ -1004,8 +1039,7 @@ final class AppModel: ObservableObject {
         analyzer.analyze(
             pixelBuffer: pixelBuffer,
             requireQuality: isEnrolling,
-            minimumQuality: settings.minimumFaceQuality,
-            detectEyes: !isEnrolling
+            minimumQuality: settings.minimumFaceQuality
         ) { [weak self] result in
             guard let self else { return }
             Task { @MainActor in
@@ -1035,26 +1069,6 @@ final class AppModel: ObservableObject {
     private func consumeAuth(_ analysis: FaceAnalysis) {
         guard authState == .scanning, isEnrolled else { return }
 
-        guard let openness = analysis.eyeOpenness else {
-            cameraHint = "Look straight at the camera."
-            return
-        }
-
-        // How open this person's eyes normally are: a slowly decaying maximum
-        // adapts to the face without being dragged down by the blink itself.
-        let baseline = max(openness, (eyeOpenBaseline ?? openness) * 0.99)
-        eyeOpenBaseline = baseline
-
-        if openness < baseline * 0.65 {
-            // Eyes closed. Identity is not judged on closed-eye frames.
-            if blinkPhase == .eyesOpen {
-                blinkPhase = .eyesClosed
-            }
-            return
-        }
-        // Half-closed: wait for a clear frame either way.
-        guard openness > baseline * 0.85 else { return }
-
         // Closest sample across every enrolled face.
         var bestDistance = Float.infinity
         var bestFace: FaceProfile?
@@ -1070,25 +1084,16 @@ final class AppModel: ObservableObject {
 
         guard bestDistance <= Float(settings.recognitionThreshold) else {
             successFrames = 0
-            blinkPhase = .waitingForMatch
             cameraHint = "Face not recognized. Move closer and look at the camera."
             return
         }
 
+        // Two matching frames in a row avoids a one-off false match.
         successFrames += 1
-        switch blinkPhase {
-        case .waitingForMatch:
-            if successFrames >= 2 {
-                blinkPhase = .eyesOpen
-                cameraHint = "Blink once to unlock."
-            } else {
-                cameraHint = "Match found — hold still."
-            }
-        case .eyesOpen:
-            cameraHint = "Blink once to unlock."
-        case .eyesClosed:
-            // The same face, open again after a blink: a live person.
+        if successFrames >= 2 {
             completeAuth(name: bestFace?.name)
+        } else {
+            cameraHint = "Match found — hold still."
         }
     }
 

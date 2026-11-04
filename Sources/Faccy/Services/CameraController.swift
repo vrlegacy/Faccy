@@ -18,8 +18,7 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var activeDeviceID: String?
     @Published private(set) var errorMessage: String?
 
-    /// Called on the main queue at roughly 16 fps while the session is running.
-    /// The higher rate is needed to see a blink, which lasts only ~150-300 ms.
+    /// Called on the main queue at roughly 10 fps while the session is running.
     var onFrame: ((CVPixelBuffer) -> Void)?
 
     private let sessionQueue = DispatchQueue(label: "io.github.vrlegacy.faccy.camera.session")
@@ -252,7 +251,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         from connection: AVCaptureConnection
     ) {
         let now = CFAbsoluteTimeGetCurrent()
-        guard now - lastFrameTime >= 0.06 else { return }
+        guard now - lastFrameTime >= 0.1 else { return }
         lastFrameTime = now
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }

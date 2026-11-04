@@ -323,7 +323,7 @@ struct EnrollmentView: View {
 
     private var completedCard: some View {
         SectionCard(title: "Profile Saved") {
-            Text("This face is saved. Any enrolled face can now unlock protected apps with a quick scan and a blink.")
+            Text("This face is saved. Any enrolled face can now unlock protected apps with a quick scan.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 

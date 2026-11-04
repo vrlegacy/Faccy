@@ -27,8 +27,8 @@ These are known and documented, not vulnerabilities to report:
 - **Matching is by bundle identifier.** A re-signed copy of an app with a
   different bundle ID, a web/PWA version, or a CLI tool that reads the same
   data is not blocked.
-- **Liveness is one blink.** Only the built-in camera is used and a still
-  photo cannot blink, but a video of the enrolled person blinking can pass.
+- **No liveness check.** Only the built-in camera is used, but a photo or
+  video of an enrolled person held up to it can pass.
 - **Local data is plain JSON.** The face profile, settings and password hash can
   be read, replaced or deleted by the logged-in user.
 - **The fallback password can be short.** Four characters are accepted and
