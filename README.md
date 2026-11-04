@@ -42,11 +42,13 @@ Faccy tries face verification first, and offers these alternatives in the same p
 
 A successful fallback unlock uses the same session rules as a face match, so "Remember each app's unlock for" applies to all three. The one exception is reopening a protected app whose window was closed: that always requires a fresh check.
 
+**Website:** [vrlegacy.github.io/Faccy](https://vrlegacy.github.io/Faccy/)
+
 ## Download
 
 Grab the latest `Faccy-x.y.z.dmg` from [Releases](https://github.com/vrlegacy/Faccy/releases), open it and drag Faccy to Applications.
 
-Faccy is ad-hoc signed, not notarized, so the first time macOS will say it can't verify the developer. Right-click Faccy in Applications and choose **Open**, or run:
+Faccy is ad-hoc signed, not notarized, so the first time macOS says it can't verify the developer. Click **Done** (not Move to Bin), then either open **System Settings › Privacy & Security** and click **Open Anyway**, or run:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Faccy.app
@@ -128,6 +130,7 @@ Sources/Faccy/
 Support/Info.plist            Bundle metadata + camera usage description
 Support/AppIcon.icns          App icon (source: Support/icon.svg)
 scripts/build.sh              Builds dist/Faccy.app
+docs/                         Marketing website (GitHub Pages)
 scripts/make-dmg.sh           Packages the app into dist/Faccy-<version>.dmg
 build.command                 Double-click: build, DMG, install, open
 .github/workflows/            CI build + tag-triggered release with DMG

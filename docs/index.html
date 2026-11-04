@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Faccy</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Faccy locks the Mac apps you choose behind your face, Touch ID, or a password.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<meta property="og:title" content="Faccy">
+<meta property="og:description" content="Lock the Mac apps you choose behind your face, Touch ID, or a password.">
+<meta property="og:image" content="https://vrlegacy.github.io/Faccy/logo.png">
+<link rel="icon" type="image/png" href="logo.png">
+<link rel="apple-touch-icon" href="logo.png">
+<style>
+/* Layout: left-aligned editorial column; the hero pairs the headline with a live "notch" demo on a mock Mac desktop. */
+:root {
+  --bg: #F4F3F8;
+  --surface: #FFFFFF;
+  --ink: #15131F;
+  --muted: #5E5A72;
+  --line: #DEDAEA;
+  --accent: #5B3DF5;
+  --accent-2: #B42BB0;
+  --ok: #1E9E52;
+  --warn: #B86A00;
+  --pill: #0A0A0F;
+  --pill-ink: #FFFFFF;
+  --wall-1: #C9C0FF;
+  --wall-2: #F1C6EE;
+  --wall-3: #E9E6F5;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --step--1: 0.875rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.6rem;
+  --step-3: clamp(2rem, 4vw, 2.6rem);
+  --step-4: clamp(2.6rem, 7vw, 4.6rem);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0C0B12; --surface: #16141F; --ink: #F2F0FA; --muted: #A39FB8; --line: #2A2739;
+    --accent: #8F7BFF; --accent-2: #E260D8; --ok: #3DDC84; --warn: #F2A93B;
+    --pill: #000000; --pill-ink: #FFFFFF;
+    --wall-1: #2B1F6B; --wall-2: #4A1A4C; --wall-3: #15131F;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0C0B12; --surface: #16141F; --ink: #F2F0FA; --muted: #A39FB8; --line: #2A2739;
+  --accent: #8F7BFF; --accent-2: #E260D8; --ok: #3DDC84; --warn: #F2A93B;
+  --pill: #000000; --pill-ink: #FFFFFF;
+  --wall-1: #2B1F6B; --wall-2: #4A1A4C; --wall-3: #15131F;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* Top bar */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.topbar .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 12px; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; color: var(--ink); text-decoration: none; letter-spacing: -0.01em; }
+.brand svg { width: 34px; height: 34px; }
+.nav { display: flex; align-items: center; gap: 20px; font-size: var(--step--1); }
+.nav a { color: var(--muted); text-decoration: none; }
+.nav a:hover { color: var(--ink); }
+.nav .gh { color: var(--ink); font-weight: 600; }
+@media (max-width: 640px) { .nav .hide-sm { display: none; } }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: var(--step-0); padding: 12px 20px; border-radius: 999px; text-decoration: none; border: 1px solid transparent; cursor: pointer; font-family: var(--font-body); }
+.btn-primary { background: var(--ink); color: var(--bg); }
+.btn-primary:hover { background: var(--accent); color: #fff; }
+.btn-ghost { border-color: var(--line); color: var(--ink); background: transparent; }
+.btn-ghost:hover { border-color: var(--ink); }
+
+/* Hero */
+.hero { padding-block: 56px 72px; }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 48px; align-items: center; }
+@media (max-width: 900px) { .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 36px; } }
+.eyebrow { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.hero h1 { font-family: var(--font-display); font-size: var(--step-4); line-height: 1.02; letter-spacing: -0.035em; font-weight: 800; margin: 14px 0 18px; text-wrap: balance; }
+.hero h1 em { font-style: normal; background: linear-gradient(100deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero .lede { font-size: var(--step-1); color: var(--muted); max-width: 34ch; margin: 0 0 28px; line-height: 1.5; }
+.cta-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.meta { margin-top: 18px; font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
+
+/* Mock desktop + notch */
+.desk { position: relative; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); aspect-ratio: 16 / 11; max-width: 100%;
+  background: radial-gradient(120% 90% at 15% 10%, var(--wall-1), transparent 60%), radial-gradient(90% 80% at 95% 90%, var(--wall-2), transparent 60%), var(--wall-3); }
+.menubar { height: 26px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 11px; font-weight: 600; color: var(--ink); background: color-mix(in srgb, var(--surface) 55%, transparent); backdrop-filter: blur(8px); }
+.menubar span { opacity: .75; }
+.pill-slot { position: absolute; top: 34px; left: 50%; transform: translateX(-50%); width: min(88%, 420px); }
+.pill { background: var(--pill); color: var(--pill-ink); border-radius: 26px; padding: 9px 12px; display: flex; align-items: center; gap: 10px; box-shadow: 0 14px 30px rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.08); transition: border-radius .3s ease; }
+.pill .app-ic { width: 30px; height: 30px; border-radius: 8px; flex: none; display: grid; place-items: center; background: conic-gradient(from 200deg, #ff5f6d, #ffc371, #7bd88f, #4fc3f7, #b388ff, #ff5f6d); }
+.pill .app-ic i { width: 12px; height: 12px; background: #fff; border-radius: 50%; opacity: .9; }
+.pill .txt { min-width: 0; flex: 1; }
+.pill .t1 { font-size: 13px; font-weight: 600; line-height: 1.2; }
+.pill .t2 { font-size: 11px; opacity: .62; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill .ico { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.1); flex: none; }
+.pill .ico svg { width: 14px; height: 14px; }
+.pill .ico.on { background: rgba(255,255,255,.28); }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); border-top-color: #fff; animation: spin .8s linear infinite; flex: none; }
+.check { width: 18px; height: 18px; flex: none; color: #3DDC84; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.window { position: absolute; left: 12%; right: 12%; top: 34%; bottom: 10%; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 20px 50px rgba(20, 10, 60, .22); padding: 12px; transform: translateY(14px) scale(.97); opacity: 0; transition: opacity .45s ease, transform .45s ease; }
+.window.show { opacity: 1; transform: none; }
+.window .dots { display: flex; gap: 6px; margin-bottom: 10px; }
+.window .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.thumbs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.thumbs i { aspect-ratio: 1; border-radius: 6px; }
+.locked-note { position: absolute; left: 50%; top: 56%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--ink); background: color-mix(in srgb, var(--surface) 70%, transparent); padding: 8px 14px; border-radius: 999px; transition: opacity .3s; }
+.locked-note svg { width: 14px; height: 14px; }
+.demo-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+.demo-controls .lbl { font-size: var(--step--1); color: var(--muted); margin-right: 4px; }
+.chip { font: 500 0.85rem var(--font-body); padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Sections */
+section.block { padding-block: 72px; border-top: 1px solid var(--line); }
+.sec-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 40px; margin-bottom: 40px; align-items: end; }
+@media (max-width: 800px) { .sec-head { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
+.sec-head h2 { font-family: var(--font-display); font-size: var(--step-3); line-height: 1.08; letter-spacing: -0.025em; margin: 8px 0 0; text-wrap: balance; }
+.sec-head p { color: var(--muted); margin: 0; max-width: 60ch; }
+
+/* Unlock methods */
+.methods { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; }
+@media (max-width: 800px) { .methods { grid-template-columns: minmax(0, 1fr); } }
+.method { padding: 28px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.method + .method { border-left: 1px solid var(--line); }
+@media (max-width: 800px) { .method + .method { border-left: 0; border-top: 1px solid var(--line); } }
+.method .mi { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.method .mi svg { width: 22px; height: 22px; }
+.method h3 { font-family: var(--font-display); font-size: var(--step-1); margin: 6px 0 0; letter-spacing: -0.01em; }
+.method p { margin: 0; color: var(--muted); }
+.method .spec { margin-top: auto; padding-top: 10px; font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); }
+.race { margin-top: 20px; display: flex; gap: 10px; align-items: flex-start; color: var(--muted); font-size: var(--step--1); max-width: 70ch; }
+.race b { color: var(--ink); }
+
+/* Feature list */
+.features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 48px; }
+@media (max-width: 760px) { .features { grid-template-columns: minmax(0, 1fr); } }
+.feat { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 14px; padding-block: 20px; border-bottom: 1px solid var(--line); }
+.feat svg { width: 22px; height: 22px; color: var(--accent); margin-top: 3px; }
+.feat h3 { margin: 0 0 4px; font-size: 1.05rem; font-weight: 600; }
+.feat p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+/* Honest limits */
+.limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 760px) { .limits { grid-template-columns: minmax(0, 1fr); } }
+.limit { padding: 18px 20px; border-radius: 12px; border: 1px dashed var(--line); min-width: 0; }
+.limit h3 { margin: 0 0 6px; font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.limit h3 svg { width: 16px; height: 16px; color: var(--warn); flex: none; }
+.limit p { margin: 0; color: var(--muted); font-size: 0.93rem; }
+
+/* Install */
+.install { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; }
+@media (max-width: 860px) { .install { grid-template-columns: minmax(0, 1fr); } }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px; counter-reset: s; }
+.steps li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; counter-increment: s; }
+.steps li::before { content: counter(s); width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted); }
+.steps h3 { margin: 2px 0 4px; font-size: 1.02rem; font-weight: 600; }
+.steps p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.term { background: var(--pill); color: #E9E6F7; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); min-width: 0; }
+.term-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.08); font-family: var(--font-mono); font-size: 0.75rem; color: rgba(255,255,255,.55); }
+.term-head .dots { display: flex; gap: 6px; }
+.term-head .dots i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,.18); }
+.cmd { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border-bottom: 1px solid rgba(255,255,255,.06); }
+.cmd:last-child { border-bottom: 0; }
+.cmd .c { font-family: var(--font-mono); font-size: 0.82rem; white-space: pre; overflow-x: auto; flex: 1; min-width: 0; line-height: 1.6; }
+.cmd .c .p { color: #8F7BFF; user-select: none; }
+.cmd .c .cm { color: rgba(255,255,255,.45); }
+.copy { flex: none; font: 500 0.75rem var(--font-body); color: #E9E6F7; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+.copy:hover { background: rgba(255,255,255,.16); }
+
+/* Footer */
+footer { border-top: 1px solid var(--line); padding-block: 40px 48px; color: var(--muted); font-size: var(--step--1); }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; align-items: center; }
+footer .brand { font-size: 1rem; }
+footer .brand svg { width: 26px; height: 26px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+<style>body{margin:0} img{max-width:100%} [hidden]{display:none!important} :root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
+</head>
+<body>
+<div id="root">
+  <noscript><p style="padding:24px">Faccy locks the Mac apps you choose behind your face, Touch ID, or a password. <a href="https://github.com/vrlegacy/Faccy">github.com/vrlegacy/Faccy</a></p></noscript>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+const REPO = "https://github.com/vrlegacy/Faccy";
+const RELEASES = "https://github.com/vrlegacy/Faccy/releases/latest";
+const VERSION = "0.3.0";
+
+/* ---------- Icons ---------- */
+function FaccyMark() {
+  return (
+    <svg viewBox="100 100 824 824" aria-hidden="true">
+      <defs>
+        <linearGradient id="fm-bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#3B2BFF" />
+          <stop offset="0.55" stopColor="#6A2BE8" />
+          <stop offset="1" stopColor="#C02BB8" />
+        </linearGradient>
+      </defs>
+      <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#fm-bg)" />
+      <g fill="none" stroke="#fff" strokeOpacity="0.55" strokeWidth="26" strokeLinecap="round">
+        <path d="M232 330 V262 Q232 232 262 232 H330" />
+        <path d="M694 232 H762 Q792 232 792 262 V330" />
+        <path d="M792 694 V762 Q792 792 762 792 H694" />
+        <path d="M330 792 H262 Q232 792 232 762 V694" />
+      </g>
+      <path d="M392 470 V400 A120 120 0 0 1 632 400 V470" fill="none" stroke="#fff" strokeWidth="54" strokeLinecap="round" />
+      <rect x="322" y="452" width="380" height="300" rx="78" fill="#fff" />
+      <circle cx="440" cy="560" r="26" fill="#3B2BFF" />
+      <path d="M558 562 Q584 584 610 562" fill="none" stroke="#3B2BFF" strokeWidth="20" strokeLinecap="round" />
+      <path d="M448 646 Q512 694 576 646" fill="none" stroke="#6A2BE8" strokeWidth="22" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+const Icon = {
+  face: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 10v3h-1M9.5 15.5a3.5 3.5 0 0 0 5 0"/></svg>
+  ),
+  touch: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M7.5 4.6A8 8 0 0 1 20 11v1M4 10a8 8 0 0 1 1.4-3.6M4 14v-2"/><path d="M8 18.5c.6-1.6 1-3.5 1-6.5a3 3 0 0 1 6 0c0 2-.2 3.8-.6 5.4"/><path d="M12 12c0 3-.6 5.8-1.8 8M17.4 16.5c.4-1.4.6-3 .6-4.5a6 6 0 0 0-9.6-4.8"/></svg>
+  ),
+  key: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2"/></svg>
+  ),
+  lock: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+  ),
+  check: (
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.2-4-4 1.4-1.4 2.6 2.6 5.6-5.6 1.4 1.4-7 7Z"/></svg>
+  ),
+  warn: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17v.01"/></svg>
+  ),
+  x: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+  ),
+  users: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14a6.5 6.5 0 0 1 3.5 6"/></svg>,
+  moon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg>,
+  shield: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 3 4.5 6v6c0 4.5 3.2 7.8 7.5 9 4.3-1.2 7.5-4.5 7.5-9V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>,
+  cam: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="6" width="18" height="13" rx="3"/><circle cx="12" cy="12.5" r="3.5"/><path d="M9 6l1.5-2h3L15 6"/></svg>,
+  island: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="16" rx="3"/><rect x="8" y="6.5" width="8" height="3" rx="1.5" fill="currentColor"/></svg>,
+  clock: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>,
+  eye: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>,
+  code: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg>,
+};
+
+/* ---------- Live notch demo ---------- */
+const SCRIPTS = {
+  face: [
+    { t1: "Open Photos", t2: "Center your face to open Photos.", state: "scan", ms: 1500 },
+    { t1: "Open Photos", t2: "Match found — hold still.", state: "scan", ms: 900 },
+    { t1: "Open Photos", t2: "Verified — Vishwas.", state: "ok", ms: 2600 },
+  ],
+  touch: [
+    { t1: "Open Photos", t2: "Center your face, or touch the sensor.", state: "scan", ms: 1500, touch: true },
+    { t1: "Open Photos", t2: "Verified with Touch ID.", state: "ok", ms: 2600, touch: true },
+  ],
+  password: [
+    { t1: "Open Photos", t2: "Center your face to open Photos.", state: "scan", ms: 1300 },
+    { t1: "Open Photos", t2: "Enter a password…", state: "scan", ms: 1300, key: true },
+    { t1: "Open Photos", t2: "Verified with Partner.", state: "ok", ms: 2600, key: true },
+  ],
+};
+
+function NotchDemo() {
+  const [mode, setMode] = useState("face");
+  const [i, setI] = useState(0);
+  const reduced = useRef(false);
+
+  useEffect(() => {
+    reduced.current = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }, []);
+
+  useEffect(() => {
+    const script = SCRIPTS[mode];
+    if (reduced.current) { setI(script.length - 1); return; }
+    const step = script[i];
+    const id = setTimeout(() => setI((i + 1) % script.length), step.ms);
+    return () => clearTimeout(id);
+  }, [mode, i]);
+
+  const step = SCRIPTS[mode][Math.min(i, SCRIPTS[mode].length - 1)];
+  const ok = step.state === "ok";
+
+  const pick = (m) => { setMode(m); setI(0); };
+
+  return (
+    <div>
+      <div className="desk" role="img" aria-label={`Faccy prompt: ${step.t1}. ${step.t2}`}>
+        <div className="menubar"><span>Finder&nbsp;&nbsp;File&nbsp;&nbsp;Edit&nbsp;&nbsp;View</span><span>Wed 15:49</span></div>
+
+        <div className={"window" + (ok ? " show" : "")} aria-hidden="true">
+          <div className="dots"><i></i><i></i><i></i></div>
+          <div className="thumbs">
+            {["#F4A261","#2A9D8F","#E76F51","#8AB17D","#264653","#E9C46A","#B5838D","#6D6875"].map((c, k) => (
+              <i key={k} style={{ background: c }}></i>
+            ))}
+          </div>
+        </div>
+
+        {!ok && (
+          <div className="locked-note" aria-hidden="true">{Icon.lock} Photos is locked</div>
+        )}
+
+        <div className="pill-slot">
+          <div className="pill">
+            <div className="app-ic"><i></i></div>
+            <div className="txt">
+              <div className="t1">{step.t1}</div>
+              <div className="t2">{step.t2}</div>
+            </div>
+            {ok ? <span className="check">{Icon.check}</span> : <span className="spinner" aria-hidden="true"></span>}
+            {!ok && <span className={"ico" + (step.touch ? " on" : "")}>{Icon.touch}</span>}
+            {!ok && <span className={"ico" + (step.key ? " on" : "")}>{Icon.key}</span>}
+            {!ok && <span className="ico">{Icon.x}</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className="demo-controls" role="group" aria-label="Choose an unlock method for the demo">
+        <span className="lbl">Try it with</span>
+        {[["face", "Face"], ["touch", "Touch ID"], ["password", "Password"]].map(([m, label]) => (
+          <button key={m} id={"demo-" + m} className="chip" aria-pressed={mode === m} onClick={() => pick(m)}>{label}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Copyable command ---------- */
+function Cmd({ text, comment }) {
+  const [copied, setCopied] = useState(false);
+  const ref = useRef(null);
+  const copy = () => {
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1600); };
+    try {
+      navigator.clipboard.writeText(text).then(done).catch(selectText);
+    } catch (e) { selectText(); }
+  };
+  const selectText = () => {
+    const range = document.createRange();
+    range.selectNodeContents(ref.current);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  };
+  return (
+    <div className="cmd">
+      <div className="c">
+        {comment && <span className="cm"># {comment}{"\n"}</span>}
+        <span className="p">$ </span><span ref={ref}>{text}</span>
+      </div>
+      <button className="copy" onClick={copy} aria-label={"Copy: " + text}>{copied ? "Copied" : "Copy"}</button>
+    </div>
+  );
+}
+
+/* ---------- Page ---------- */
+const FEATURES = [
+  { icon: Icon.lock, title: "Lock any app", text: "Pick apps from /Applications or anywhere on disk. Open one from the Dock, Spotlight or Finder and Faccy steps in." },
+  { icon: Icon.users, title: "Up to 5 faces and 5 passwords", text: "Enroll yourself, a partner or a colleague. Any enrolled face or any saved password unlocks." },
+  { icon: Icon.island, title: "A prompt that stays out of the way", text: "Verification appears as a small black pill under the notch. The camera preview only appears if recognition needs help." },
+  { icon: Icon.moon, title: "Locks itself again", text: "Screen lock, sleep, switching users or 5 minutes idle locks every protected app. Faccy's own settings are locked too." },
+  { icon: Icon.clock, title: "Per-app unlock time", text: "Ask every time, or remember an unlock for 1 to 30 minutes. Unlocking one app never unlocks the others." },
+  { icon: Icon.cam, title: "Built-in camera only", text: "External, iPhone and virtual cameras are ignored, so a video feed can't be piped in as the camera." },
+  { icon: Icon.eye, title: "Nothing leaves your Mac", text: "Apple's Vision framework runs on-device. Faccy stores face feature prints, never photos, in Application Support." },
+  { icon: Icon.code, title: "Open source, MIT licensed", text: "About 4,000 lines of Swift and SwiftUI. Read it, build it with one double-click, or fork it." },
+];
+
+const LIMITS = [
+  { title: "It's a watchdog, not a kernel gate", text: "Faccy kills a protected app the moment it starts. A running app with open windows can still flash for a split second before it is hidden." },
+  { title: "Quitting Faccy turns it off", text: "Anyone who can quit Faccy or edit its data folder can get past it. It guards against someone borrowing your unlocked Mac." },
+  { title: "No liveness check", text: "A photo or video of an enrolled face, held up to the camera, can pass. Use Touch ID if that matters to you." },
+  { title: "App data isn't encrypted", text: "Faccy locks the app's window, not its files. Chats or photos on disk are readable by anyone with your user account." },
+];
+
+function App() {
+  return (
+    <>
+      <header className="topbar">
+        <div className="wrap">
+          <a className="brand" href="#top"><FaccyMark /> Faccy</a>
+          <nav className="nav" aria-label="Main">
+            <a className="hide-sm" href="#unlock">How it unlocks</a>
+            <a className="hide-sm" href="#features">Features</a>
+            <a className="hide-sm" href="#install">Install</a>
+            <a className="gh" href={REPO} target="_blank" rel="noopener">GitHub ↗</a>
+          </nav>
+        </div>
+      </header>
+
+      <main id="top">
+        <section className="hero">
+          <div className="wrap hero-grid">
+            <div>
+              <div className="eyebrow">For macOS 14+ · Apple silicon</div>
+              <h1>Your apps open for <em>your face</em>. Nobody else's.</h1>
+              <p className="lede">Faccy locks the Mac apps you choose. Open one and it checks your face, Touch ID or a password first.</p>
+              <div className="cta-row">
+                <a className="btn btn-primary" href={RELEASES} target="_blank" rel="noopener">Download Faccy {VERSION}</a>
+                <a className="btn btn-ghost" href={REPO} target="_blank" rel="noopener">View source</a>
+              </div>
+              <div className="meta">Faccy-{VERSION}.dmg · 1.34 MB · free and open source</div>
+            </div>
+            <NotchDemo />
+          </div>
+        </section>
+
+        <section className="block" id="unlock">
+          <div className="wrap">
+            <div className="sec-head">
+              <div>
+                <div className="eyebrow">How it unlocks</div>
+                <h2>Three ways in. The first one wins.</h2>
+              </div>
+              <p>When you open a protected app, the face scan and Touch ID start together. Whichever recognizes you first opens the app, and the other prompt goes away.</p>
+            </div>
+
+            <div className="methods">
+              <div className="method">
+                <div className="mi">{Icon.face}</div>
+                <h3>Face</h3>
+                <p>Look at the built-in camera. Two matching frames and you're in, usually in under a second.</p>
+                <div className="spec">Vision feature prints · tolerance 0.45</div>
+              </div>
+              <div className="method">
+                <div className="mi">{Icon.touch}</div>
+                <h3>Touch ID</h3>
+                <p>The fingerprint prompt appears at the same time as the face scan. Touch the key to skip the camera.</p>
+                <div className="spec">LocalAuthentication · any enrolled finger</div>
+              </div>
+              <div className="method">
+                <div className="mi">{Icon.key}</div>
+                <h3>Password</h3>
+                <p>Tap the key icon in the prompt and type any of your saved passwords. Handy when the camera is covered.</p>
+                <div className="spec">Salted SHA-256 · 60,000 rounds</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="block" id="features">
+          <div className="wrap">
+            <div className="sec-head">
+              <div>
+                <div className="eyebrow">Features</div>
+                <h2>Small app. Sits in your menu bar.</h2>
+              </div>
+              <p>No Dock icon, no account, no cloud. Faccy starts at login and watches for the apps you picked.</p>
+            </div>
+            <div className="features">
+              {FEATURES.map((f) => (
+                <div className="feat" key={f.title}>
+                  {f.icon}
+                  <div>
+                    <h3>{f.title}</h3>
+                    <p>{f.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="block" id="limits">
+          <div className="wrap">
+            <div className="sec-head">
+              <div>
+                <div className="eyebrow">What it doesn't do</div>
+                <h2>A convenience lock, honestly labeled.</h2>
+              </div>
+              <p>Faccy runs as a normal app, so it has the limits of a normal app. It is not FileVault and it doesn't replace your login password.</p>
+            </div>
+            <div className="limits">
+              {LIMITS.map((l) => (
+                <div className="limit" key={l.title}>
+                  <h3>{Icon.warn}{l.title}</h3>
+                  <p>{l.text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="block" id="install">
+          <div className="wrap">
+            <div className="sec-head">
+              <div>
+                <div className="eyebrow">Install</div>
+                <h2>Up and running in a minute.</h2>
+              </div>
+              <p>Faccy isn't notarized by Apple yet, so macOS asks you to confirm it the first time.</p>
+            </div>
+            <div className="install">
+              <ol className="steps">
+                <li>
+                  <div>
+                    <h3>Download the DMG</h3>
+                    <p>Get <a href={RELEASES} target="_blank" rel="noopener">Faccy-{VERSION}.dmg</a> from GitHub Releases and drag Faccy into Applications.</p>
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <h3>Allow it to open</h3>
+                    <p>If macOS says it can't verify Faccy, click Done, then run the command on the right. Or use System Settings › Privacy &amp; Security › Open Anyway.</p>
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <h3>Enroll and pick apps</h3>
+                    <p>Allow the camera, scan your face, then add the apps you want locked. Add Touch ID or a password as a backup.</p>
+                  </div>
+                </li>
+              </ol>
+
+              <div className="term">
+                <div className="term-head"><span className="dots"><i></i><i></i><i></i></span><span>Terminal</span></div>
+                <Cmd comment="let macOS open the downloaded app" text="xattr -dr com.apple.quarantine /Applications/Faccy.app" />
+                <Cmd comment="or build it yourself" text="git clone https://github.com/vrlegacy/Faccy.git" />
+                <Cmd text="cd Faccy && ./build.command" />
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div className="wrap">
+          <a className="brand" href="#top"><FaccyMark /> Faccy</a>
+          <span>MIT licensed · made by <a href="https://github.com/vrlegacy" target="_blank" rel="noopener">vrlegacy</a></span>
+        </div>
+      </footer>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
