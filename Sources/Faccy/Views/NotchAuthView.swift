@@ -182,6 +182,7 @@ struct NotchAuthView: View {
     }
 
     private var title: String {
+        if request.origin == .faccyWindow { return "Unlock Faccy" }
         guard let app = request.app else { return "Face Check" }
 
         switch request.origin {
@@ -189,6 +190,8 @@ struct NotchAuthView: View {
             return "Open \(app.name)"
         case .blocked, .reopened:
             return "Reopen \(app.name)"
+        case .faccyWindow:
+            return "Unlock Faccy"
         }
     }
 
@@ -265,11 +268,6 @@ struct NotchAuthView: View {
 
                     Spacer()
                 }
-            } else if model.settings.showMatchScore, let distance = model.lastMatchDistance {
-                Text(matchScoreText(distance))
-                    .font(.system(size: 10))
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.45))
             }
         }
     }
@@ -332,15 +330,6 @@ struct NotchAuthView: View {
         guard !password.isEmpty else { return }
         model.verifyPassword(password)
         password = ""
-    }
-
-    private func matchScoreText(_ distance: Float) -> String {
-        let threshold = Float(model.settings.recognitionThreshold)
-        let value = String(format: "%.3f", distance)
-        let tolerance = String(format: "%.2f", threshold)
-        return distance <= threshold
-            ? "Match \(value) · tolerance \(tolerance)"
-            : "Distance \(value) · tolerance \(tolerance)"
     }
 }
 

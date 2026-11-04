@@ -30,6 +30,8 @@ struct AuthRequest: Identifiable {
         /// The app was still running but its window was closed; reopening it
         /// requires a fresh check.
         case reopened
+        /// The user is opening Faccy's own window.
+        case faccyWindow
     }
 
     let id = UUID()
@@ -50,6 +52,15 @@ final class AppModel: ObservableObject {
     @Published var settings: AppSettings {
         didSet {
             persistence.saveSettings(settings)
+            // If the window was usable without a check before this change
+            // (lock off, or no unlock method yet), the person changing
+            // settings is already inside it — don't lock them out mid-edit.
+            let couldAuthenticateBefore = isEnrolled
+                || (oldValue.allowTouchID && biometricsAvailable)
+                || (oldValue.allowPasswordFallback && hasPassword)
+            if !oldValue.lockFaccyWindow || !couldAuthenticateBefore {
+                isFaccyUnlocked = true
+            }
             if oldValue.cameraDeviceID != settings.cameraDeviceID {
                 camera.selectDevice(id: settings.cameraDeviceID)
             }
@@ -77,11 +88,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var authState: AuthState = .idle
     @Published private(set) var enrollmentPhase: EnrollmentPhase = .idle
     @Published private(set) var enrollmentCollected = 0
-    @Published private(set) var lastMatchDistance: Float?
     @Published private(set) var lastFaceQuality: Double?
     @Published var cameraHint: String = ""
     @Published var errorMessage: String?
-    @Published private(set) var lastAuthAt: Date?
+    /// When each protected app was last unlocked, keyed by bundle ID.
+    /// Every app has its own session.
+    @Published private(set) var appUnlockedAt: [String: Date] = [:]
+    /// Whether Faccy's own window has been unlocked since it was last locked.
+    @Published private(set) var isFaccyUnlocked = false
 
     // Secondary authentication
     @Published private(set) var biometricsAvailable = SecondaryAuth.biometricsAvailable
@@ -107,6 +121,21 @@ final class AppModel: ObservableObject {
     private var lastEnrollmentSampleAt = Date.distantPast
     private var pendingGate: PendingGate?
     private var cancellables = Set<AnyCancellable>()
+
+    // Liveness and automatic locking
+    private var blinkPhase: BlinkPhase = .waitingForMatch
+    private var eyeOpenBaseline: Double?
+    private var idleTimer: Timer?
+    private var isIdleLocked = false
+    private var lockObservers: [NSObjectProtocol] = []
+
+    /// A matched face has to blink once before it unlocks anything, so a
+    /// still photo cannot get in.
+    private enum BlinkPhase {
+        case waitingForMatch
+        case eyesOpen
+        case eyesClosed
+    }
 
     /// A protected app that needs attention once the current prompt closes.
     private struct PendingGate {
@@ -134,6 +163,10 @@ final class AppModel: ObservableObject {
             self?.handleReopenGate(bundleID)
         }
         launchGuard.isEnabled = settings.enforceSystemWide
+
+        if settings.launchAtLogin, !LoginItemManager.isEnabled {
+            _ = LoginItemManager.setEnabled(true)
+        }
 
         camera.onFrame = { [weak self] buffer in
             self?.handleFrame(buffer)
@@ -164,6 +197,8 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             self?.catalog.refresh()
         }
+
+        startLockMonitoring()
     }
 
     // MARK: - Derived state
@@ -176,9 +211,22 @@ final class AppModel: ObservableObject {
         enrollmentPhase == .preparing || enrollmentPhase == .capturing
     }
 
-    var isSessionValid: Bool {
-        guard settings.authValiditySeconds > 0, let lastAuthAt else { return false }
-        return Date().timeIntervalSince(lastAuthAt) < Double(settings.authValiditySeconds)
+    /// True while this app is inside its own "remember unlock" window.
+    func isSessionValid(for bundleID: String) -> Bool {
+        guard settings.authValiditySeconds > 0, let unlockedAt = appUnlockedAt[bundleID] else { return false }
+        return Date().timeIntervalSince(unlockedAt) < Double(settings.authValiditySeconds)
+    }
+
+    /// True when at least one protected app is currently unlocked.
+    var hasActiveSessions: Bool {
+        appUnlockedAt.keys.contains { isSessionValid(for: $0) }
+    }
+
+    /// Faccy's own window needs a check before it can be used. Until some
+    /// unlock method exists there is nothing to check with, so the window
+    /// stays open for first-time setup.
+    var isFaccyLocked: Bool {
+        settings.lockFaccyWindow && canAuthenticate && !isFaccyUnlocked
     }
 
     var touchIDAvailable: Bool {
@@ -259,7 +307,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        if isSessionValid {
+        if isSessionValid(for: app.bundleID) {
             relaunch(app)
             return
         }
@@ -274,6 +322,17 @@ final class AppModel: ObservableObject {
         }
 
         presentAuth(for: nil)
+    }
+
+    /// Asks the user to authenticate before Faccy's own window is shown.
+    func requestFaccyUnlock() {
+        guard isFaccyLocked, authRequest == nil else { return }
+        presentAuth(for: nil, origin: .faccyWindow)
+    }
+
+    /// Locks Faccy's window again, for example when it is closed.
+    func relockFaccyWindow() {
+        isFaccyUnlocked = false
     }
 
     /// Shows the verification pill for an app (or a bare recognition test).
@@ -293,7 +352,7 @@ final class AppModel: ObservableObject {
     private func handleBlockedLaunch(_ bundleID: String) {
         guard let app = protectedApps.first(where: { $0.bundleID == bundleID }) else { return }
 
-        if isSessionValid {
+        if isSessionValid(for: app.bundleID) {
             relaunch(app)
             return
         }
@@ -362,7 +421,7 @@ final class AppModel: ObservableObject {
         // valid session: closing and reopening is what the user wants gated.
         if gate.origin == .reopened {
             presentAuth(for: app, origin: .reopened)
-        } else if isSessionValid {
+        } else if isSessionValid(for: app.bundleID) {
             relaunch(app)
         } else {
             presentAuth(for: app, origin: gate.origin)
@@ -388,7 +447,6 @@ final class AppModel: ObservableObject {
         authWindow.dismiss()
         authRequest = nil
         authState = .idle
-        lastMatchDistance = nil
         secondaryError = nil
         isSecondaryInProgress = false
         revealCamera = false
@@ -409,7 +467,8 @@ final class AppModel: ObservableObject {
         revealTask?.cancel()
         revealTask = nil
         successFrames = 0
-        lastMatchDistance = nil
+        blinkPhase = .waitingForMatch
+        eyeOpenBaseline = nil
         lastFaceQuality = nil
         secondaryError = nil
         isSecondaryInProgress = false
@@ -419,6 +478,8 @@ final class AppModel: ObservableObject {
 
         let appName = request.app?.name
         switch (request.origin, appName) {
+        case (.faccyWindow, _):
+            cameraHint = "Center your face to unlock Faccy."
         case (.reopened, let name?):
             cameraHint = "Center your face to reopen \(name)."
         case (.blocked, let name?):
@@ -483,8 +544,13 @@ final class AppModel: ObservableObject {
         authTimeoutTask = nil
         revealTask?.cancel()
         revealTask = nil
-        lastAuthAt = Date()
-        scheduleSessionExpiry()
+        if let bundleID = authRequest?.app?.bundleID {
+            appUnlockedAt[bundleID] = Date()
+            scheduleSessionExpiry()
+        }
+        if authRequest?.origin == .faccyWindow {
+            isFaccyUnlocked = true
+        }
         authState = .success
         cameraHint = message
         secondaryError = nil
@@ -508,7 +574,6 @@ final class AppModel: ObservableObject {
             self.authWindow.dismiss()
             self.authRequest = nil
             self.authState = .idle
-            self.lastMatchDistance = nil
             self.revealCamera = false
             self.showPasswordEntry = false
             self.processPendingGate()
@@ -602,6 +667,9 @@ final class AppModel: ObservableObject {
         let record = PasswordRecord.make(password: password)
         try persistence.savePasswordRecord(record)
         hasPassword = true
+        // The person setting the password is the owner; don't lock them out
+        // of the window they are using.
+        isFaccyUnlocked = true
         secondaryError = nil
     }
 
@@ -639,29 +707,115 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Ends every app's unlock session.
     func lockNow() {
         sessionExpiryTask?.cancel()
         sessionExpiryTask = nil
-        lastAuthAt = nil
+        appUnlockedAt.removeAll()
     }
 
+    /// Locks everything: every app session, Faccy's own window, and every
+    /// protected app that is running right now (they are hidden and need a
+    /// fresh check to come back).
+    func lockAll() {
+        lockNow()
+        isFaccyUnlocked = false
+        pendingGate = nil
+        if authRequest != nil, authState != .success {
+            cancelAuth()
+        }
+        launchGuard.lockRunningApps()
+    }
+
+    /// Drops expired app sessions and wakes up again at the next expiry.
     private func scheduleSessionExpiry() {
         sessionExpiryTask?.cancel()
         sessionExpiryTask = nil
 
-        guard settings.authValiditySeconds > 0, let lastAuthAt else { return }
-
-        let remaining = Double(settings.authValiditySeconds) - Date().timeIntervalSince(lastAuthAt)
-        guard remaining > 0 else {
-            self.lastAuthAt = nil
+        guard settings.authValiditySeconds > 0 else {
+            if !appUnlockedAt.isEmpty {
+                appUnlockedAt.removeAll()
+            }
             return
         }
+
+        let validity = Double(settings.authValiditySeconds)
+        let now = Date()
+        let active = appUnlockedAt.filter { now.timeIntervalSince($0.value) < validity }
+        if active.count != appUnlockedAt.count {
+            appUnlockedAt = active
+        }
+
+        guard let earliest = active.values.min() else { return }
+        let remaining = max(0.5, validity - now.timeIntervalSince(earliest))
 
         sessionExpiryTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
-            self.lastAuthAt = nil
             self.sessionExpiryTask = nil
+            self.scheduleSessionExpiry()
+        }
+    }
+
+    // MARK: - Automatic locking
+
+    /// Locks everything when the screen locks, the Mac or its displays go to
+    /// sleep, the user switches away from this login session, or there has
+    /// been no input for `idleLockSeconds`.
+    private func startLockMonitoring() {
+        let workspace = NSWorkspace.shared.notificationCenter
+        let workspaceEvents: [Notification.Name] = [
+            NSWorkspace.willSleepNotification,
+            NSWorkspace.screensDidSleepNotification,
+            NSWorkspace.sessionDidResignActiveNotification
+        ]
+        for name in workspaceEvents {
+            let token = workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.lockAll()
+                }
+            }
+            lockObservers.append(token)
+        }
+
+        let distributed = DistributedNotificationCenter.default()
+        let screenLockToken = distributed.addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.lockAll()
+            }
+        }
+        lockObservers.append(screenLockToken)
+
+        let timer = Timer(timeInterval: 10, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.checkIdle()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        idleTimer = timer
+    }
+
+    private func checkIdle() {
+        guard settings.idleLockSeconds > 0 else {
+            isIdleLocked = false
+            return
+        }
+
+        // kCGAnyInputEventType: any keyboard, mouse or trackpad input.
+        guard let anyInput = CGEventType(rawValue: ~0) else { return }
+        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
+
+        if idle >= Double(settings.idleLockSeconds) {
+            if !isIdleLocked {
+                isIdleLocked = true
+                lockAll()
+            }
+        } else {
+            isIdleLocked = false
         }
     }
 
@@ -707,7 +861,7 @@ final class AppModel: ObservableObject {
         sessionExpiryTask = nil
         authWindow.dismiss()
         profile = nil
-        lastAuthAt = nil
+        appUnlockedAt.removeAll()
         pendingGate = nil
         authRequest = nil
         authState = .idle
@@ -748,6 +902,7 @@ final class AppModel: ObservableObject {
         do {
             try persistence.saveProfile(newProfile)
             profile = newProfile
+            isFaccyUnlocked = true
             enrollmentPhase = .completed
             cameraHint = "Face profile saved. You can now protect apps."
             camera.stop()
@@ -765,7 +920,8 @@ final class AppModel: ObservableObject {
         analyzer.analyze(
             pixelBuffer: pixelBuffer,
             requireQuality: isEnrolling,
-            minimumQuality: settings.minimumFaceQuality
+            minimumQuality: settings.minimumFaceQuality,
+            detectEyes: !isEnrolling
         ) { [weak self] result in
             guard let self else { return }
             Task { @MainActor in
@@ -798,20 +954,51 @@ final class AppModel: ObservableObject {
               !profile.embeddings.isEmpty
         else { return }
 
+        guard let openness = analysis.eyeOpenness else {
+            cameraHint = "Look straight at the camera."
+            return
+        }
+
+        // How open this person's eyes normally are: a slowly decaying maximum
+        // adapts to the face without being dragged down by the blink itself.
+        let baseline = max(openness, (eyeOpenBaseline ?? openness) * 0.99)
+        eyeOpenBaseline = baseline
+
+        if openness < baseline * 0.65 {
+            // Eyes closed. Identity is not judged on closed-eye frames.
+            if blinkPhase == .eyesOpen {
+                blinkPhase = .eyesClosed
+            }
+            return
+        }
+        // Half-closed: wait for a clear frame either way.
+        guard openness > baseline * 0.85 else { return }
+
         let bestDistance = profile.embeddings.reduce(Float.infinity) { partial, embedding in
             min(partial, FaceAnalyzer.distance(embedding, analysis.embedding))
         }
-        lastMatchDistance = bestDistance
 
-        if bestDistance <= Float(settings.recognitionThreshold) {
-            successFrames += 1
-            cameraHint = successFrames >= 2 ? "Verified." : "Match found — hold still."
-            if successFrames >= 2 {
-                completeAuth()
-            }
-        } else {
+        guard bestDistance <= Float(settings.recognitionThreshold) else {
             successFrames = 0
+            blinkPhase = .waitingForMatch
             cameraHint = "Face not recognized. Move closer and look at the camera."
+            return
+        }
+
+        successFrames += 1
+        switch blinkPhase {
+        case .waitingForMatch:
+            if successFrames >= 2 {
+                blinkPhase = .eyesOpen
+                cameraHint = "Blink once to unlock."
+            } else {
+                cameraHint = "Match found — hold still."
+            }
+        case .eyesOpen:
+            cameraHint = "Blink once to unlock."
+        case .eyesClosed:
+            // The same face, open again after a blink: a live person.
+            completeAuth()
         }
     }
 

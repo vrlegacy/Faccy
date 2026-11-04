@@ -18,7 +18,8 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var activeDeviceID: String?
     @Published private(set) var errorMessage: String?
 
-    /// Called on the main queue at roughly 8 fps while the session is running.
+    /// Called on the main queue at roughly 16 fps while the session is running.
+    /// The higher rate is needed to see a blink, which lasts only ~150-300 ms.
     var onFrame: ((CVPixelBuffer) -> Void)?
 
     private let sessionQueue = DispatchQueue(label: "io.github.vrlegacy.faccy.camera.session")
@@ -42,12 +43,15 @@ final class CameraController: NSObject, ObservableObject {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// Only the Mac's own camera is allowed. External, Continuity (iPhone) and
+    /// virtual cameras (OBS and similar) are ignored so a recorded video cannot
+    /// be fed in as the camera.
     private func videoDevices() -> [AVCaptureDevice] {
         AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
+            deviceTypes: [.builtInWideAngleCamera],
             mediaType: .video,
             position: .unspecified
-        ).devices
+        ).devices.filter { $0.deviceType == .builtInWideAngleCamera }
     }
 
     private var hasCameraUsageDescription: Bool {
@@ -170,7 +174,7 @@ final class CameraController: NSObject, ObservableObject {
         let device = resolveDevice(deviceID: deviceID)
         guard let device else {
             DispatchQueue.main.async {
-                self.errorMessage = "No camera found. Connect a camera and try again."
+                self.errorMessage = "No built-in camera found. Faccy only uses the Mac's own camera — use Touch ID or your password instead."
             }
             return
         }
@@ -237,7 +241,7 @@ final class CameraController: NSObject, ObservableObject {
            let match = devices.first(where: { $0.uniqueID == preferredDeviceID }) {
             return match
         }
-        return AVCaptureDevice.default(for: .video) ?? devices.first
+        return devices.first
     }
 }
 
@@ -248,7 +252,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         from connection: AVCaptureConnection
     ) {
         let now = CFAbsoluteTimeGetCurrent()
-        guard now - lastFrameTime >= 0.12 else { return }
+        guard now - lastFrameTime >= 0.06 else { return }
         lastFrameTime = now
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }

@@ -7,6 +7,9 @@ struct FaceAnalysis {
     let embedding: [Float]
     let quality: Double
     let boundingBox: CGRect
+    /// Average eye height-to-width ratio, or nil when it was not measured.
+    /// It drops sharply while the eyes are closed, which is how a blink is seen.
+    let eyeOpenness: Double?
 }
 
 enum FaceAnalysisError: Error {
@@ -42,6 +45,7 @@ final class FaceAnalyzer {
         pixelBuffer: CVPixelBuffer,
         requireQuality: Bool,
         minimumQuality: Double,
+        detectEyes: Bool = false,
         completion: @escaping (Result<FaceAnalysis, FaceAnalysisError>) -> Void
     ) {
         queue.async { [weak self] in
@@ -57,7 +61,8 @@ final class FaceAnalyzer {
             let result = self.perform(
                 pixelBuffer: pixelBuffer,
                 requireQuality: requireQuality,
-                minimumQuality: minimumQuality
+                minimumQuality: minimumQuality,
+                detectEyes: detectEyes
             )
 
             DispatchQueue.main.async {
@@ -69,7 +74,8 @@ final class FaceAnalyzer {
     private func perform(
         pixelBuffer: CVPixelBuffer,
         requireQuality: Bool,
-        minimumQuality: Double
+        minimumQuality: Double,
+        detectEyes: Bool
     ) -> Result<FaceAnalysis, FaceAnalysisError> {
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
 
@@ -93,6 +99,24 @@ final class FaceAnalyzer {
         let box = face.boundingBox
         guard box.width > 0.10, box.height > 0.12 else {
             return .failure(.faceTooSmall)
+        }
+
+        var eyeOpenness: Double?
+        if detectEyes {
+            let landmarksRequest = VNDetectFaceLandmarksRequest()
+            landmarksRequest.inputFaceObservations = [face]
+            if (try? handler.perform([landmarksRequest])) != nil,
+               let landmarks = landmarksRequest.results?.first?.landmarks {
+                let imageSize = CGSize(
+                    width: CVPixelBufferGetWidth(pixelBuffer),
+                    height: CVPixelBufferGetHeight(pixelBuffer)
+                )
+                eyeOpenness = Self.eyeOpenness(
+                    left: landmarks.leftEye,
+                    right: landmarks.rightEye,
+                    imageSize: imageSize
+                )
+            }
         }
 
         var quality = 0.0
@@ -151,7 +175,33 @@ final class FaceAnalyzer {
             return .failure(.featurePrintFailed)
         }
 
-        return .success(FaceAnalysis(embedding: embedding, quality: quality, boundingBox: box))
+        return .success(FaceAnalysis(
+            embedding: embedding,
+            quality: quality,
+            boundingBox: box,
+            eyeOpenness: eyeOpenness
+        ))
+    }
+
+    /// Height-to-width ratio of each eye's landmark outline, averaged.
+    private static func eyeOpenness(
+        left: VNFaceLandmarkRegion2D?,
+        right: VNFaceLandmarkRegion2D?,
+        imageSize: CGSize
+    ) -> Double? {
+        let ratios = [left, right].compactMap { region -> Double? in
+            guard let region, region.pointCount >= 4 else { return nil }
+            let points = region.pointsInImage(imageSize: imageSize)
+            let xs = points.map(\.x)
+            let ys = points.map(\.y)
+            guard let minX = xs.min(), let maxX = xs.max(),
+                  let minY = ys.min(), let maxY = ys.max(),
+                  maxX - minX > 1
+            else { return nil }
+            return Double((maxY - minY) / (maxX - minX))
+        }
+        guard !ratios.isEmpty else { return nil }
+        return ratios.reduce(0, +) / Double(ratios.count)
     }
 
     private static func floats(from observation: VNFeaturePrintObservation) -> [Float]? {

@@ -13,6 +13,37 @@ struct MainWindowView: View {
     @State private var selection: SidebarItem = .apps
 
     var body: some View {
+        // A ZStack (not a Group) so onAppear/onDisappear belong to the window,
+        // not to whichever child is showing.
+        ZStack {
+            if model.isFaccyLocked {
+                FaccyLockedView()
+            } else {
+                content
+            }
+        }
+        .alert("Faccy", isPresented: errorBinding) {
+            Button("OK") {
+                model.clearError()
+            }
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
+        .onAppear {
+            NSApp.activate(ignoringOtherApps: true)
+            model.refreshSecondaryAvailability()
+            showMenuBarIcon = model.settings.showMenuBarIcon
+        }
+        .onDisappear {
+            // Closing the window locks it again.
+            model.relockFaccyWindow()
+        }
+        .onChange(of: model.settings.showMenuBarIcon) { _, newValue in
+            showMenuBarIcon = newValue
+        }
+    }
+
+    private var content: some View {
         NavigationSplitView {
             List(selection: $selection) {
                 Label("Protected Apps", systemImage: "lock.shield")
@@ -41,21 +72,6 @@ struct MainWindowView: View {
             .frame(minWidth: 700, minHeight: 560)
             .background(Color(nsColor: .windowBackgroundColor))
         }
-        .alert("Faccy", isPresented: errorBinding) {
-            Button("OK") {
-                model.clearError()
-            }
-        } message: {
-            Text(model.errorMessage ?? "")
-        }
-        .onAppear {
-            NSApp.activate(ignoringOtherApps: true)
-            model.refreshSecondaryAvailability()
-            showMenuBarIcon = model.settings.showMenuBarIcon
-        }
-        .onChange(of: model.settings.showMenuBarIcon) { _, newValue in
-            showMenuBarIcon = newValue
-        }
     }
 
     private var errorBinding: Binding<Bool> {
@@ -82,7 +98,7 @@ struct MainWindowView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if model.isSessionValid {
+            if model.hasActiveSessions {
                 Button {
                     model.lockNow()
                 } label: {
@@ -96,5 +112,37 @@ struct MainWindowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.bottom, 12)
+    }
+}
+
+/// Shown instead of Faccy's window until the user authenticates.
+private struct FaccyLockedView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(.secondary)
+
+            Text("Faccy is locked")
+                .font(.title2.weight(.semibold))
+
+            Text("Verify it's you to change protected apps, face setup, or settings.")
+                .foregroundStyle(.secondary)
+
+            Button {
+                model.requestFaccyUnlock()
+            } label: {
+                Label("Unlock", systemImage: "faceid")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(model.authRequest != nil)
+        }
+        .padding(40)
+        .frame(minWidth: 700, minHeight: 560)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }

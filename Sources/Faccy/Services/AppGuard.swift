@@ -51,8 +51,13 @@ final class AppGuard {
 
     private var launchObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
+    /// Fires when a process registers with the window server, which is
+    /// earlier than `didLaunchApplicationNotification` (that one waits until
+    /// the app has finished launching and usually already shows a window).
+    private var runningAppsObservation: NSKeyValueObservation?
     private var pollTimer: Timer?
     private var readyAt = Date.distantPast
+    private var startedAt = Date.distantPast
 
     /// Give the app a moment to finish launching before we start acting.
     private static let startupGrace: TimeInterval = 1.5
@@ -110,6 +115,17 @@ final class AppGuard {
         }
     }
 
+    /// Hides every approved protected app and requires a fresh check before
+    /// any of them is shown again. Used when the screen locks, the Mac sleeps,
+    /// or the user has been idle.
+    func lockRunningApps() {
+        pendingAuthorizations.removeAll()
+        for (pid, bundleID) in authorizedPIDs where protectedBundleIDs.contains(bundleID) {
+            closedPIDs.insert(pid)
+            NSRunningApplication(processIdentifier: pid)?.hide()
+        }
+    }
+
     /// Stops treating an app's current process as protected.
     func forgetAuthorizations() {
         authorizedPIDs.removeAll()
@@ -122,7 +138,8 @@ final class AppGuard {
 
     func start() {
         guard launchObserver == nil else { return }
-        readyAt = Date().addingTimeInterval(Self.startupGrace)
+        startedAt = Date()
+        readyAt = startedAt.addingTimeInterval(Self.startupGrace)
 
         if !enforceExistingApps {
             for app in NSWorkspace.shared.runningApplications {
@@ -162,6 +179,15 @@ final class AppGuard {
             }
         }
 
+        runningAppsObservation = NSWorkspace.shared.observe(
+            \.runningApplications,
+            options: [.new]
+        ) { [weak self] _, _ in
+            Task { @MainActor in
+                self?.evaluateAllRunning()
+            }
+        }
+
         let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.poll()
@@ -181,6 +207,8 @@ final class AppGuard {
             center.removeObserver(activationObserver)
             self.activationObserver = nil
         }
+        runningAppsObservation?.invalidate()
+        runningAppsObservation = nil
         pollTimer?.invalidate()
         pollTimer = nil
         pendingAuthorizations.removeAll()
@@ -196,7 +224,11 @@ final class AppGuard {
         let snapshot = Self.windowSnapshot()
         updateClosedState(snapshot: snapshot)
         gateReopenedWindows(snapshot: snapshot)
+        evaluateAllRunning()
+    }
 
+    private func evaluateAllRunning() {
+        guard isEnabled else { return }
         for app in NSWorkspace.shared.runningApplications {
             evaluate(app)
         }
@@ -229,7 +261,19 @@ final class AppGuard {
         guard !blockedPIDs.contains(pid) else { return }
         blockedPIDs.insert(pid)
 
-        app.terminate()
+        // A process that started after the watchdog cannot hold any of the
+        // user's work yet, so kill it at once instead of asking it to quit.
+        // That keeps the moment it is visible as short as possible. Apps that
+        // were already running when Faccy started get a normal quit first.
+        let isFreshLaunch = (app.launchDate ?? Date()) >= startedAt
+        if isFreshLaunch {
+            app.hide()
+            if !app.forceTerminate() {
+                kill(pid, SIGKILL)
+            }
+        } else {
+            app.terminate()
+        }
         scheduleForceTerminate(pid: pid, bundleID: bundleID)
         onBlockedLaunch?(bundleID)
     }

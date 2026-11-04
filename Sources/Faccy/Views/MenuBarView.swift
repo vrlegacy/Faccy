@@ -7,7 +7,7 @@ struct MenuBarView: View {
 
     var body: some View {
         Button {
-            showMainWindow()
+            openAndUnlock()
         } label: {
             Label("Open Faccy", systemImage: "macwindow")
         }
@@ -42,7 +42,7 @@ struct MenuBarView: View {
 
         Divider()
 
-        if model.isSessionValid {
+        if model.hasActiveSessions {
             Button {
                 model.lockNow()
             } label: {
@@ -61,5 +61,10 @@ struct MenuBarView: View {
     private func showMainWindow() {
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func openAndUnlock() {
+        showMainWindow()
+        model.requestFaccyUnlock()
     }
 }

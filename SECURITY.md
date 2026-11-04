@@ -16,21 +16,23 @@ undo Faccy.
 
 These are known and documented, not vulnerabilities to report:
 
-- **Faccy's own window is not locked.** Settings, the protected-app list,
-  enrollment, and the fallback password can be changed without authenticating.
 - **Quitting Faccy disables protection.** It can be quit from the menu bar,
-  Activity Monitor, `killall Faccy`, or by logging out and back in when
-  "Launch at login" is off. Nothing relaunches it.
-- **Watchdog, not a pre-launch gate.** A protected app runs for up to ~2 s
-  before it is quit. Its data on disk (chats, mail, browser profiles) is never
-  protected, only its UI.
+  Activity Monitor or `killall Faccy`, and nothing relaunches it. (Faccy's own
+  window is locked, and "Launch at login" is on by default.)
+- **Watchdog, not a pre-launch gate.** A newly launched protected app is
+  killed as soon as Faccy sees it, but it can still flash on screen for a
+  fraction of a second. True pre-launch blocking needs Apple's Endpoint
+  Security entitlement. The app's data on disk (chats, mail, browser
+  profiles) is never protected, only its UI.
 - **Matching is by bundle identifier.** A re-signed copy of an app with a
   different bundle ID, a web/PWA version, or a CLI tool that reads the same
   data is not blocked.
-- **No liveness detection.** A photo, video, or virtual camera feed of the
-  enrolled person can pass face verification.
+- **Liveness is one blink.** Only the built-in camera is used and a still
+  photo cannot blink, but a video of the enrolled person blinking can pass.
 - **Local data is plain JSON.** The face profile, settings and password hash can
   be read, replaced or deleted by the logged-in user.
+- **The fallback password can be short.** Four characters are accepted and
+  there is no limit on attempts.
 - **Any enrolled fingerprint unlocks.** Touch ID accepts every fingerprint
   enrolled on the Mac, not just the owner's.
 

@@ -40,7 +40,7 @@ struct SettingsView: View {
             } header: {
                 Text("Camera")
             } footer: {
-                Text("Faccy uses the selected camera only while enrolling or verifying a face.")
+                Text("Faccy only uses the Mac's built-in camera, and only while enrolling or verifying a face. External, iPhone and virtual cameras are ignored.")
             }
 
             Section {
@@ -87,8 +87,6 @@ struct SettingsView: View {
                     )
                 }
 
-                Toggle("Show match score during verification", isOn: $model.settings.showMatchScore)
-
                 Stepper(
                     "Verification timeout: \(Int(model.settings.maxVerifySeconds)) sec",
                     value: Binding(
@@ -100,7 +98,7 @@ struct SettingsView: View {
             } header: {
                 Text("Recognition")
             } footer: {
-                Text("Match score is the distance between your enrolled face print and the current scan. It is useful when tuning the tolerance.")
+                Text("To unlock, your face has to match and then blink once, so a still photo can't get in.")
             }
 
             Section {
@@ -161,8 +159,18 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker("Remember unlock for", selection: $model.settings.authValiditySeconds) {
+                Toggle("Require unlock to open Faccy", isOn: $model.settings.lockFaccyWindow)
+
+                Picker("Remember each app's unlock for", selection: $model.settings.authValiditySeconds) {
                     Text("Every launch").tag(0)
+                    Text("1 minute").tag(60)
+                    Text("5 minutes").tag(300)
+                    Text("15 minutes").tag(900)
+                    Text("30 minutes").tag(1800)
+                }
+
+                Picker("Lock after idle", selection: $model.settings.idleLockSeconds) {
+                    Text("Never").tag(0)
                     Text("1 minute").tag(60)
                     Text("5 minutes").tag(300)
                     Text("15 minutes").tag(900)
@@ -180,7 +188,7 @@ struct SettingsView: View {
 
                     Spacer()
 
-                    if model.isSessionValid {
+                    if model.hasActiveSessions {
                         Button("Lock Now") {
                             model.lockNow()
                         }
@@ -189,7 +197,7 @@ struct SettingsView: View {
             } header: {
                 Text("Session")
             } footer: {
-                Text("If Faccy is not installed in /Applications, macOS may not allow it to register as a login item.")
+                Text("Each app keeps its own unlock. Faccy locks every protected app and its own window when the screen locks, the Mac sleeps, or you are idle for the time above. If Faccy is not installed in /Applications, macOS may not allow it to register as a login item.")
             }
 
             Section {

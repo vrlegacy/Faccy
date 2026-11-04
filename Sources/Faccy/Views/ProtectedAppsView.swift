@@ -16,7 +16,7 @@ struct ProtectedAppsView: View {
                     setupBanner
                 }
 
-                if model.isSessionValid {
+                if model.hasActiveSessions {
                     unlockedBanner
                 }
 
@@ -123,7 +123,7 @@ struct ProtectedAppsView: View {
         HStack(spacing: 12) {
             Image(systemName: "lock.open.fill")
                 .foregroundStyle(.green)
-            Text("Face verification is valid for \(model.authValidityDescription) — protected apps open without a new scan.")
+            Text("Unlocked apps open without a new scan for \(model.authValidityDescription). Each app has its own unlock.")
                 .font(.callout)
             Spacer()
             Button("Lock Now") {
@@ -196,7 +196,7 @@ struct ProtectedAppsView: View {
 
             Spacer()
 
-            if model.isSessionValid {
+            if model.isSessionValid(for: app.bundleID) {
                 StatusPill(text: "Unlocked", systemImage: "lock.open", tint: .green)
             } else {
                 StatusPill(text: "Face required", systemImage: "lock", tint: .secondary)
