@@ -6,8 +6,11 @@ final class PersistenceStore {
 
     private let settingsURL: URL
     private let appsURL: URL
-    private let profileURL: URL
-    private let passwordURL: URL
+    private let facesURL: URL
+    private let passwordsURL: URL
+    /// Single-face / single-password files from earlier versions, migrated on load.
+    private let legacyProfileURL: URL
+    private let legacyPasswordURL: URL
 
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -19,8 +22,10 @@ final class PersistenceStore {
         directory = base.appendingPathComponent("Faccy", isDirectory: true)
         settingsURL = directory.appendingPathComponent("settings.json")
         appsURL = directory.appendingPathComponent("apps.json")
-        profileURL = directory.appendingPathComponent("face-profile.json")
-        passwordURL = directory.appendingPathComponent("password.json")
+        facesURL = directory.appendingPathComponent("faces.json")
+        passwordsURL = directory.appendingPathComponent("passwords.json")
+        legacyProfileURL = directory.appendingPathComponent("face-profile.json")
+        legacyPasswordURL = directory.appendingPathComponent("password.json")
 
         encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -64,44 +69,54 @@ final class PersistenceStore {
         try? data.write(to: appsURL, options: .atomic)
     }
 
-    // MARK: - Face profile
+    // MARK: - Faces
 
-    func loadProfile() -> FaceProfile? {
-        guard let data = try? Data(contentsOf: profileURL),
-              let profile = try? decoder.decode(FaceProfile.self, from: data),
-              !profile.isEmpty
-        else {
-            return nil
+    func loadFaces() -> [FaceProfile] {
+        if let data = try? Data(contentsOf: facesURL),
+           let faces = try? decoder.decode([FaceProfile].self, from: data) {
+            return faces.filter { !$0.isEmpty }
         }
-        return profile
-    }
 
-    func saveProfile(_ profile: FaceProfile) throws {
-        let data = try encoder.encode(profile)
-        try data.write(to: profileURL, options: .atomic)
-    }
+        // Migrate a single face saved by an earlier version.
+        guard let data = try? Data(contentsOf: legacyProfileURL),
+              let legacy = try? decoder.decode(FaceProfile.self, from: data),
+              !legacy.isEmpty
+        else { return [] }
 
-    func deleteProfile() {
-        try? FileManager.default.removeItem(at: profileURL)
-    }
-
-    // MARK: - Fallback password
-
-    func loadPasswordRecord() -> PasswordRecord? {
-        guard let data = try? Data(contentsOf: passwordURL),
-              let record = try? decoder.decode(PasswordRecord.self, from: data)
-        else {
-            return nil
+        let faces = [legacy]
+        if (try? saveFaces(faces)) != nil {
+            try? FileManager.default.removeItem(at: legacyProfileURL)
         }
-        return record
+        return faces
     }
 
-    func savePasswordRecord(_ record: PasswordRecord) throws {
-        let data = try encoder.encode(record)
-        try data.write(to: passwordURL, options: .atomic)
+    func saveFaces(_ faces: [FaceProfile]) throws {
+        let data = try encoder.encode(faces)
+        try data.write(to: facesURL, options: .atomic)
     }
 
-    func deletePasswordRecord() {
-        try? FileManager.default.removeItem(at: passwordURL)
+    // MARK: - Fallback passwords
+
+    func loadPasswords() -> [PasswordRecord] {
+        if let data = try? Data(contentsOf: passwordsURL),
+           let records = try? decoder.decode([PasswordRecord].self, from: data) {
+            return records
+        }
+
+        // Migrate a single password saved by an earlier version.
+        guard let data = try? Data(contentsOf: legacyPasswordURL),
+              let legacy = try? decoder.decode(PasswordRecord.self, from: data)
+        else { return [] }
+
+        let records = [legacy]
+        if (try? savePasswords(records)) != nil {
+            try? FileManager.default.removeItem(at: legacyPasswordURL)
+        }
+        return records
+    }
+
+    func savePasswords(_ records: [PasswordRecord]) throws {
+        let data = try encoder.encode(records)
+        try data.write(to: passwordsURL, options: .atomic)
     }
 }

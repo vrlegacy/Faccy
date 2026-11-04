@@ -21,4 +21,6 @@ xcuserdata/
 
 # Local Faccy data should never be committed
 face-profile.json
+faces.json
 password.json
+passwords.json

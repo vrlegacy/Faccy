@@ -93,7 +93,7 @@ struct MainWindowView: View {
                 Circle()
                     .fill(model.isEnrolled ? Color.green : Color.orange)
                     .frame(width: 8, height: 8)
-                Text(model.isEnrolled ? "Face profile active" : "No face profile")
+                Text(model.isEnrolled ? "\(model.faces.count) face\(model.faces.count == 1 ? "" : "s") enrolled" : "No face enrolled")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

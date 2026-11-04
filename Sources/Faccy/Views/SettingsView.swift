@@ -5,7 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
 
     @State private var showPasswordSetup = false
-    @State private var showRemovePasswordConfirm = false
+    @State private var passwordToRemove: PasswordRecord?
 
     var body: some View {
         Form {
@@ -136,26 +136,31 @@ struct SettingsView: View {
 
                 Toggle("Allow a custom password", isOn: $model.settings.allowPasswordFallback)
 
-                HStack {
-                    Text("Password")
-                    Spacer()
-                    Text(model.hasPassword ? "Set" : "Not set")
-                        .foregroundStyle(.secondary)
-
-                    Button(model.hasPassword ? "Change…" : "Set…") {
-                        showPasswordSetup = true
-                    }
-
-                    if model.hasPassword {
+                ForEach(model.passwords) { record in
+                    HStack {
+                        Image(systemName: "key.fill")
+                            .foregroundStyle(.secondary)
+                        Text(record.label)
+                        Spacer()
                         Button("Remove", role: .destructive) {
-                            showRemovePasswordConfirm = true
+                            passwordToRemove = record
                         }
                     }
+                }
+
+                HStack {
+                    Text("Passwords: \(model.passwords.count) of \(AppModel.maxPasswords)")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Add Password…") {
+                        showPasswordSetup = true
+                    }
+                    .disabled(!model.canAddPassword)
                 }
             } header: {
                 Text("Fallback Unlock")
             } footer: {
-                Text("Fallbacks let you open protected apps when Face Auth fails or the camera is unavailable. The password is stored as a salted, iterated SHA-256 hash — never in plain text.")
+                Text("Fallbacks let you open protected apps when Face Auth fails or the camera is unavailable. Any saved password unlocks. Passwords are stored as salted, iterated SHA-256 hashes — never in plain text.")
             }
 
             Section {
@@ -220,7 +225,7 @@ struct SettingsView: View {
                 HStack {
                     Text("Storage")
                     Spacer()
-                    Text(model.isEnrolled ? "Face profile + settings" : "Settings only")
+                    Text("\(model.faces.count) face\(model.faces.count == 1 ? "" : "s"), \(model.passwords.count) password\(model.passwords.count == 1 ? "" : "s") + settings")
                         .foregroundStyle(.secondary)
                 }
             } header: {
@@ -255,13 +260,24 @@ struct SettingsView: View {
             PasswordSetupView()
                 .environmentObject(model)
         }
-        .alert("Remove fallback password?", isPresented: $showRemovePasswordConfirm) {
+        .alert(
+            "Remove \(passwordToRemove?.label ?? "password")?",
+            isPresented: Binding(
+                get: { passwordToRemove != nil },
+                set: { if !$0 { passwordToRemove = nil } }
+            )
+        ) {
             Button("Remove", role: .destructive) {
-                model.removePassword()
+                if let record = passwordToRemove {
+                    model.removePassword(record.id)
+                }
+                passwordToRemove = nil
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                passwordToRemove = nil
+            }
         } message: {
-            Text("You will only be able to unlock protected apps with Face Auth or Touch ID.")
+            Text("This password will no longer unlock protected apps.")
         }
     }
 

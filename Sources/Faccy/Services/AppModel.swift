@@ -83,7 +83,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    @Published private(set) var profile: FaceProfile?
+    /// Enrolled faces. Any one of them unlocks.
+    @Published private(set) var faces: [FaceProfile] = []
+    static let maxFaces = 5
+    static let maxPasswords = 5
     @Published var authRequest: AuthRequest?
     @Published private(set) var authState: AuthState = .idle
     @Published private(set) var enrollmentPhase: EnrollmentPhase = .idle
@@ -99,7 +102,8 @@ final class AppModel: ObservableObject {
 
     // Secondary authentication
     @Published private(set) var biometricsAvailable = SecondaryAuth.biometricsAvailable
-    @Published private(set) var hasPassword: Bool
+    /// Fallback passwords. Any one of them unlocks.
+    @Published private(set) var passwords: [PasswordRecord] = []
     @Published private(set) var isSecondaryInProgress = false
     @Published var secondaryError: String?
 
@@ -118,6 +122,9 @@ final class AppModel: ObservableObject {
     private var sessionExpiryTask: Task<Void, Never>?
     private var successFrames = 0
     private var enrollmentEmbeddings: [[Float]] = []
+    /// The face being (re-)enrolled: an existing id to replace, or nil for a new face.
+    private var enrollmentTargetID: UUID?
+    private var enrollmentName = ""
     private var lastEnrollmentSampleAt = Date.distantPast
     private var pendingGate: PendingGate?
     private var cancellables = Set<AnyCancellable>()
@@ -149,10 +156,10 @@ final class AppModel: ObservableObject {
     init() {
         let store = PersistenceStore()
         persistence = store
-        hasPassword = store.loadPasswordRecord() != nil
         settings = store.loadSettings()
         protectedApps = store.loadProtectedApps()
-        profile = store.loadProfile()
+        faces = store.loadFaces()
+        passwords = store.loadPasswords()
 
         launchGuard.updateProtectedApps(protectedApps)
         launchGuard.enforceExistingApps = settings.enforceAtStartup
@@ -204,7 +211,19 @@ final class AppModel: ObservableObject {
     // MARK: - Derived state
 
     var isEnrolled: Bool {
-        profile != nil
+        faces.contains { !$0.isEmpty }
+    }
+
+    var hasPassword: Bool {
+        !passwords.isEmpty
+    }
+
+    var canAddFace: Bool {
+        faces.count < Self.maxFaces
+    }
+
+    var canAddPassword: Bool {
+        passwords.count < Self.maxPasswords
     }
 
     var isEnrolling: Bool {
@@ -533,9 +552,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func completeAuth() {
+    private func completeAuth(name: String?) {
         guard authState == .scanning else { return }
-        finishAuthSuccess(message: "Face verified.")
+        finishAuthSuccess(message: name.map { "Verified — \($0)." } ?? "Face verified.")
     }
 
     /// Shared success path for face, Touch ID, and password authentication.
@@ -610,7 +629,8 @@ final class AppModel: ObservableObject {
 
     func verifyPassword(_ password: String) {
         guard authRequest != nil, passwordAvailable, !isSecondaryInProgress else { return }
-        guard let record = persistence.loadPasswordRecord() else {
+        let records = persistence.loadPasswords()
+        guard !records.isEmpty else {
             secondaryError = "No fallback password is set."
             return
         }
@@ -620,15 +640,15 @@ final class AppModel: ObservableObject {
         let candidate = password
 
         Task { @MainActor [weak self] in
-            let matches = await Task.detached(priority: .userInitiated) {
-                record.matches(candidate)
+            let matchedLabel = await Task.detached(priority: .userInitiated) { () -> String? in
+                records.first { $0.matches(candidate) }?.label
             }.value
 
             guard let self else { return }
             self.isSecondaryInProgress = false
 
-            if matches {
-                self.finishAuthSuccess(message: "Verified with your password.")
+            if let matchedLabel {
+                self.finishAuthSuccess(message: "Verified with \(matchedLabel).")
             } else {
                 self.secondaryError = "Incorrect password. Try again."
             }
@@ -637,7 +657,7 @@ final class AppModel: ObservableObject {
 
     func refreshSecondaryAvailability() {
         biometricsAvailable = SecondaryAuth.biometricsAvailable
-        hasPassword = persistence.loadPasswordRecord() != nil
+        passwords = persistence.loadPasswords()
     }
 
     private static func describeBiometricError(_ error: Error) -> String {
@@ -663,19 +683,36 @@ final class AppModel: ObservableObject {
 
     // MARK: - Password management
 
-    func setPassword(_ password: String) throws {
-        let record = PasswordRecord.make(password: password)
-        try persistence.savePasswordRecord(record)
-        hasPassword = true
-        // The person setting the password is the owner; don't lock them out
+    /// Adds another fallback password, up to `maxPasswords`.
+    func addPassword(label: String, password: String) throws {
+        guard canAddPassword else {
+            throw NSError(
+                domain: "Faccy",
+                code: 409,
+                userInfo: [NSLocalizedDescriptionKey: "You can save up to \(Self.maxPasswords) passwords."]
+            )
+        }
+
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmed.isEmpty ? "Password \(passwords.count + 1)" : trimmed
+        var updated = passwords
+        updated.append(PasswordRecord.make(label: name, password: password))
+        try persistence.savePasswords(updated)
+        passwords = updated
+        // The person adding a password is the owner; don't lock them out
         // of the window they are using.
         isFaccyUnlocked = true
         secondaryError = nil
     }
 
-    func removePassword() {
-        persistence.deletePasswordRecord()
-        hasPassword = false
+    func removePassword(_ id: UUID) {
+        let updated = passwords.filter { $0.id != id }
+        do {
+            try persistence.savePasswords(updated)
+            passwords = updated
+        } catch {
+            errorMessage = "Could not remove the password: \(error.localizedDescription)"
+        }
     }
 
     private func failAuth(_ message: String) {
@@ -821,8 +858,17 @@ final class AppModel: ObservableObject {
 
     // MARK: - Enrollment
 
-    func startEnrollment() {
+    /// Enrolls a new face (`replacing: nil`) or re-enrolls an existing one.
+    func startEnrollment(name: String, replacing id: UUID? = nil) {
         guard !isEnrolling else { return }
+        guard id != nil || canAddFace else {
+            errorMessage = "You can enroll up to \(Self.maxFaces) faces. Delete one to add another."
+            return
+        }
+
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        enrollmentTargetID = id
+        enrollmentName = trimmed.isEmpty ? "Face \(faces.count + 1)" : trimmed
 
         authTimeoutTask?.cancel()
         authDismissTask?.cancel()
@@ -840,6 +886,21 @@ final class AppModel: ObservableObject {
         camera.start(preferredDeviceID: settings.cameraDeviceID)
     }
 
+    /// Tries the last enrollment again after a failure.
+    func retryEnrollment() {
+        startEnrollment(name: enrollmentName, replacing: enrollmentTargetID)
+    }
+
+    func renameFace(_ id: UUID, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = faces.firstIndex(where: { $0.id == id }) else { return }
+        var updated = faces
+        updated[index].name = trimmed
+        if (try? persistence.saveFaces(updated)) != nil {
+            faces = updated
+        }
+    }
+
     func cancelEnrollment() {
         enrollmentPhase = .idle
         enrollmentEmbeddings = []
@@ -849,8 +910,22 @@ final class AppModel: ObservableObject {
         camera.stop()
     }
 
-    func deleteProfile() {
-        persistence.deleteProfile()
+    func deleteFace(_ id: UUID) {
+        let updated = faces.filter { $0.id != id }
+        do {
+            try persistence.saveFaces(updated)
+        } catch {
+            errorMessage = "Could not delete the face: \(error.localizedDescription)"
+            return
+        }
+        faces = updated
+        if faces.isEmpty {
+            resetAfterLastFaceRemoved()
+        }
+    }
+
+    /// With no faces left, stop anything that depended on face recognition.
+    private func resetAfterLastFaceRemoved() {
         authTimeoutTask?.cancel()
         authTimeoutTask = nil
         authDismissTask?.cancel()
@@ -860,7 +935,6 @@ final class AppModel: ObservableObject {
         sessionExpiryTask?.cancel()
         sessionExpiryTask = nil
         authWindow.dismiss()
-        profile = nil
         appUnlockedAt.removeAll()
         pendingGate = nil
         authRequest = nil
@@ -898,13 +972,23 @@ final class AppModel: ObservableObject {
     private func finishEnrollment() {
         enrollmentPhase = .saving
 
-        let newProfile = FaceProfile(embeddings: enrollmentEmbeddings)
+        var updated = faces
+        if let id = enrollmentTargetID, let index = updated.firstIndex(where: { $0.id == id }) {
+            updated[index] = FaceProfile(
+                id: id,
+                name: updated[index].name,
+                embeddings: enrollmentEmbeddings
+            )
+        } else {
+            updated.append(FaceProfile(name: enrollmentName, embeddings: enrollmentEmbeddings))
+        }
+
         do {
-            try persistence.saveProfile(newProfile)
-            profile = newProfile
+            try persistence.saveFaces(updated)
+            faces = updated
             isFaccyUnlocked = true
             enrollmentPhase = .completed
-            cameraHint = "Face profile saved. You can now protect apps."
+            cameraHint = "\(enrollmentName) saved. You can now protect apps."
             camera.stop()
         } catch {
             enrollmentPhase = .failed("Could not save the face profile: \(error.localizedDescription)")
@@ -949,10 +1033,7 @@ final class AppModel: ObservableObject {
     }
 
     private func consumeAuth(_ analysis: FaceAnalysis) {
-        guard authState == .scanning,
-              let profile,
-              !profile.embeddings.isEmpty
-        else { return }
+        guard authState == .scanning, isEnrolled else { return }
 
         guard let openness = analysis.eyeOpenness else {
             cameraHint = "Look straight at the camera."
@@ -974,8 +1055,17 @@ final class AppModel: ObservableObject {
         // Half-closed: wait for a clear frame either way.
         guard openness > baseline * 0.85 else { return }
 
-        let bestDistance = profile.embeddings.reduce(Float.infinity) { partial, embedding in
-            min(partial, FaceAnalyzer.distance(embedding, analysis.embedding))
+        // Closest sample across every enrolled face.
+        var bestDistance = Float.infinity
+        var bestFace: FaceProfile?
+        for face in faces {
+            for embedding in face.embeddings {
+                let distance = FaceAnalyzer.distance(embedding, analysis.embedding)
+                if distance < bestDistance {
+                    bestDistance = distance
+                    bestFace = face
+                }
+            }
         }
 
         guard bestDistance <= Float(settings.recognitionThreshold) else {
@@ -998,7 +1088,7 @@ final class AppModel: ObservableObject {
             cameraHint = "Blink once to unlock."
         case .eyesClosed:
             // The same face, open again after a blink: a live person.
-            completeAuth()
+            completeAuth(name: bestFace?.name)
         }
     }
 

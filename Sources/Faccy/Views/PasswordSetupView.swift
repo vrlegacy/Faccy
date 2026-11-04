@@ -4,6 +4,7 @@ struct PasswordSetupView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
+    @State private var label = ""
     @State private var password = ""
     @State private var confirmation = ""
     @State private var errorMessage: String?
@@ -15,15 +16,17 @@ struct PasswordSetupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(model.hasPassword ? "Change Fallback Password" : "Set Fallback Password")
+                Text("Add Fallback Password")
                     .font(.title2.weight(.semibold))
-                Text("Use this to unlock protected apps when Face Auth or Touch ID isn't available.")
+                Text("Any saved password unlocks protected apps when Face Auth or Touch ID isn't available. You can save up to \(AppModel.maxPasswords).")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 10) {
+                TextField("Label (for example: Work, Partner)", text: $label)
+                    .textFieldStyle(.roundedBorder)
                 SecureField("New password", text: $password)
                     .textFieldStyle(.roundedBorder)
                 SecureField("Confirm password", text: $confirmation)
@@ -66,12 +69,15 @@ struct PasswordSetupView: View {
         }
         .padding(24)
         .frame(width: 440)
+        .onAppear {
+            label = "Password \(model.passwords.count + 1)"
+        }
     }
 
     private func save() {
         guard isValid else { return }
         do {
-            try model.setPassword(password)
+            try model.addPassword(label: label, password: password)
             dismiss()
         } catch {
             errorMessage = "Could not save the password: \(error.localizedDescription)"
