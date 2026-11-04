@@ -61,6 +61,11 @@ final class AppGuard {
 
     /// Give the app a moment to finish launching before we start acting.
     private static let startupGrace: TimeInterval = 1.5
+    /// For this long after Faccy starts (it usually starts at login), protected
+    /// apps that are running or that start on their own are locked quietly —
+    /// hidden, and gated when the user brings them forward — instead of being
+    /// killed, prompted for, and reopened.
+    private static let startupLockWindow: TimeInterval = 30
     private static let forceTerminateDelay: TimeInterval = 1.0
     private static let pollInterval: TimeInterval = 0.7
     /// Time after approval before "no windows" counts as closed. Long enough
@@ -141,11 +146,14 @@ final class AppGuard {
         startedAt = Date()
         readyAt = startedAt.addingTimeInterval(Self.startupGrace)
 
-        if !enforceExistingApps {
-            for app in NSWorkspace.shared.runningApplications {
-                guard let bundleID = app.bundleIdentifier,
-                      protectedBundleIDs.contains(bundleID)
-                else { continue }
+        for app in NSWorkspace.shared.runningApplications {
+            guard let bundleID = app.bundleIdentifier,
+                  protectedBundleIDs.contains(bundleID),
+                  !app.isTerminated
+            else { continue }
+            if enforceExistingApps {
+                lockQuietly(app, bundleID: bundleID)
+            } else {
                 authorizedPIDs[app.processIdentifier] = bundleID
                 authorizedAt[app.processIdentifier] = Date()
             }
@@ -258,6 +266,13 @@ final class AppGuard {
             }
         }
 
+        // Right after Faccy starts, apps opening on their own (login items,
+        // restored apps) are locked silently rather than killed and reopened.
+        if Date().timeIntervalSince(startedAt) < Self.startupLockWindow {
+            lockQuietly(app, bundleID: bundleID)
+            return
+        }
+
         guard !blockedPIDs.contains(pid) else { return }
         blockedPIDs.insert(pid)
 
@@ -276,6 +291,16 @@ final class AppGuard {
         }
         scheduleForceTerminate(pid: pid, bundleID: bundleID)
         onBlockedLaunch?(bundleID)
+    }
+
+    /// Adopts a running app as locked: it is hidden and needs a fresh check
+    /// the next time the user brings it forward. Nothing is quit or reopened.
+    private func lockQuietly(_ app: NSRunningApplication, bundleID: String) {
+        let pid = app.processIdentifier
+        authorizedPIDs[pid] = bundleID
+        authorizedAt[pid] = Date()
+        closedPIDs.insert(pid)
+        app.hide()
     }
 
     private func handleActivation(_ app: NSRunningApplication) {

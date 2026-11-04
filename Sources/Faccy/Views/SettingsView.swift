@@ -105,7 +105,7 @@ struct SettingsView: View {
                 Toggle("Block protected apps launched outside Faccy", isOn: $model.settings.enforceSystemWide)
 
                 if model.settings.enforceSystemWide {
-                    Toggle("Also close protected apps already running when Faccy starts", isOn: $model.settings.enforceAtStartup)
+                    Toggle("Lock protected apps already running when Faccy starts", isOn: $model.settings.enforceAtStartup)
 
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark.shield.fill")
@@ -118,7 +118,7 @@ struct SettingsView: View {
             } header: {
                 Text("Enforcement")
             } footer: {
-                Text("When on, Faccy watches for protected apps opened from the Dock, Spotlight, Finder, or anywhere else. It quits them and asks you to authenticate before reopening. This is a watchdog, not a kernel-level block: an app may appear briefly before it is closed, and Faccy must be running. The startup option applies the next time Faccy launches.")
+                Text("When on, Faccy watches for protected apps opened from the Dock, Spotlight, Finder, or anywhere else. It quits them and asks you to authenticate before reopening. Apps that are already open, or that open on their own at login, are hidden instead and ask for a check when you switch to them. This is a watchdog, not a kernel-level block: an app may appear briefly before it is closed, and Faccy must be running.")
             }
 
             Section {
